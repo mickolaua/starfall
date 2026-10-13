@@ -144,6 +144,68 @@ def fits_image_shape(path: Path) -> tuple[int, int]:
         return int(header.get("NAXIS1", 0)), int(header.get("NAXIS2", 0))
 
 
+def _header_value_str(value: Any) -> str:
+    if value is True:
+        return "T"
+    if value is False:
+        return "F"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def fits_header_payload(path: Path) -> dict[str, Any]:
+    """Return FITS header cards plus a compact WCS summary for client cursor readout."""
+    with fits.open(path) as hdul:
+        header = hdul[0].header
+        naxis1 = int(header.get("NAXIS1", 0) or 0)
+        naxis2 = int(header.get("NAXIS2", 0) or 0)
+        cards = []
+        for card in header.cards:
+            key = card.keyword
+            if not key or key == "COMMENT" and card.value == "":
+                # Keep COMMENT/HISTORY cards; skip fully empty junk
+                pass
+            cards.append(
+                {
+                    "key": key,
+                    "value": _header_value_str(card.value),
+                    "comment": card.comment or "",
+                }
+            )
+
+        wcs_info: dict[str, Any] = {"available": False}
+        try:
+            wcs = WCS(header)
+            if wcs.naxis >= 2 and wcs.has_celestial:
+                celestial = wcs.celestial
+                ctype = [str(c) for c in celestial.wcs.ctype]
+                crpix = [float(x) for x in celestial.wcs.crpix]
+                crval = [float(x) for x in celestial.wcs.crval]
+                # Prefer full CD matrix when present
+                try:
+                    cd = celestial.pixel_scale_matrix.tolist()
+                except Exception:
+                    cdelt = [float(x) for x in celestial.wcs.cdelt]
+                    cd = [[cdelt[0], 0.0], [0.0, cdelt[1]]]
+                wcs_info = {
+                    "available": True,
+                    "ctype": ctype,
+                    "crpix": crpix,  # FITS 1-based
+                    "crval": crval,  # degrees
+                    "cd": cd,  # degrees per pixel
+                }
+        except Exception as exc:
+            wcs_info = {"available": False, "error": str(exc)}
+
+    return {
+        "naxis1": naxis1,
+        "naxis2": naxis2,
+        "cards": cards,
+        "wcs": wcs_info,
+    }
+
+
 def discover_reg_files(fits_path: Path) -> list[Path]:
     """Find region files associated with a FITS product."""
     stem = fits_path.name

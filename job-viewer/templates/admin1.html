@@ -1,0 +1,79 @@
+{% extends "basic_page.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="container mt-5">
+        <h1 class="mb-4">Admin Panel</h1>
+
+        <div class="col-md-4 mb-4">
+            <a class="btn btn-secondary" href="{{ url_for('dag') }}">Display jobs</a>
+        </div>
+
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#userListModal">
+            Show users
+        </button>
+
+        <div class="modal fade" id="userListModal" tabindex="-1" role="dialog" aria-labelledby="userListModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header d-flex justify-content-between">
+                        <h5 class="modal-title" id="userListModalLabel">Users</h5>
+                        <button type="button" class="btn close btn-secondary" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <ul class="list-group" id="userList">
+                            <!-- User list -->
+                            {% for user in users %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center" data-bs-id="{{ user.id }}">
+                                {{ user.name }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="userDetailModal" tabindex="-1" role="dialog" aria-labelledby="userDetailModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="userDetailModalLabel">User info</h5>
+                        <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="userDetail">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    // Обработчик клика по пользователю
+    $(document).ready(function () {
+        $('#userList').on('click', '.list-group-item', function () {
+            if ($(this).text().trimEnd()) {
+                const userId = $(this).find('id').text();
+                console.log(userId);
+                const userName = $(this).text();
+                // const userInfo = users.find(user => user.id === userId).info; // Получаем информацию о пользователе
+
+                // Заполняем модальное окно информацией о пользователе
+                $('#userDetail').html(`<strong>${userName}</strong><br>`);
+                $('#userDetailModal').modal('show'); // Показываем модальное окно
+            }
+        });
+    });
+</script>
+{% endblock %}

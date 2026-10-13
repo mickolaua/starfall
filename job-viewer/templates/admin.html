@@ -1,0 +1,185 @@
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<style>
+    .scrollable-list {
+        max-height: 50vh;
+        /* Set the maximum height for the scrollable area */
+        overflow-y: auto;
+        /* Enable vertical scrolling */
+        border: 1px solid #dee2e6;
+        /* Optional: Add a border */
+        border-radius: 0.25rem;
+
+        /* Optional: Add rounded corners */
+        .modal-backdrop {
+            opacity: 0.5;
+            /* Adjust backdrop opacity for better visibility */
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-5">
+    <div class="row">
+        <div class="col-md-3">
+            <div class="d-grid gap-2">
+                <button type="button" class="btn btn-outline-primary w-100 w-sm-50 w-md-25" onclick="refToJobs()">Display jobs</button>
+                <button type="button" class="btn btn-outline-primary w-100 w-sm-50 w-md-25" data-bs-toggle="modal" data-bs-target="#userModal">
+                    Show users
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Модальное окно со списком пользователей -->
+<div class="modal fade" id="userModal" tabindex="-1" role="dialog" aria-labelledby="userModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header d-flex justify-content-between">
+                <h5 class="modal-title" id="userModalLabel">User List</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true"></span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <ul class="list-group scrollable-list" id="userList">
+                    {% for user in users %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center" data-bs-toggle="modal"
+                        data-bs-target="#userDetailModal" style="cursor: pointer;" data-user-id="{{ user.id }}"
+                        data-user-role="{{ user.role }}">
+                        {{ user.username }} ({{ user.role }})
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для действий над пользователем -->
+<div class="modal fade" id="userDetailModal" tabindex="-1" role="dialog" aria-labelledby="userDetailModalLabel"
+    aria-hidden="false">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header d-flex justify-content-between">
+                <h5 class="modal-title" id="userDetailModalLabel">Actions for user</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="userDetail">
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="messageModal" tabindex="-1" role="dialog" aria-labelledby="messageModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header d-flex justify-content-between">
+                <h5 class="modal-title" id="messageModalLabel">Messages</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                {% with messages = get_flashed_messages(with_categories=True) %}
+                {% if messages %}
+                <ul>
+                    {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% endwith %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+</div>
+
+
+
+{% endblock %}
+
+
+{% block scripts %}
+
+<script>
+    // Обработчик клика по пользователю
+    $(document).ready(function () {
+        $('#userList').on('click', '.list-group-item', function () {
+            if ($(this).text().trimEnd()) {
+                const userId = $(this).attr("data-user-id");
+                console.log(userId);
+                const userName = $(this).text();
+                const userRole = $(this).attr("data-user-role")
+
+                $('#userDetailModalLabel').html(`<strong>${userName}</strong>`)
+
+                $("#userDetail").html(`
+                <p>Status: ${userRole}</p>
+                <div class="container justify-left">
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="user_id" value="${userId}">
+                        <button type="submit" name="action" value="remove" class="btn btn-danger btn-sm">Remove</button>
+                    </form>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="user_id" value="${userId}">
+                        <button type="submit" name="action" value="ban" class="btn btn-warning btn-sm">Ban</button>
+                    </form>
+                    
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="user_id" value="${userId}">
+                        <button type="submit" name="action" value="unban" class="btn btn-warning btn-sm">Unban</button>
+                    </form>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="user_id" value="${userId}">
+                        <button type="submit" name="action" value="elevate_to_admin" class="btn btn-primary btn-sm">Elevate to admin</button>
+                    </form>
+                </div>
+                `)
+                $('#userDetailModal').modal('show'); // Показываем модальное окно
+            }
+        });
+    });
+
+    // $(document).ready(function () {
+    //     {% if get_flashed_messages() %}
+    //     $('#messageModal').modal('show');  // Show the modal if there are flashed messages
+    //     {% endif %}
+    // });
+</script>
+
+<script>
+    const listItems = document.querySelectorAll('#userList .list-group-item');
+    listItems.forEach(item => {
+        item.addEventListener('mouseover', () => {
+            listItems.forEach(i => i.classList.remove('bg-primary', 'text-white'));
+            item.classList.add('bg-primary', 'text-white');
+        });
+    });
+</script>
+
+<script>
+    function refToJobs() {
+        window.location.href = "{{ url_for('dag') }}";
+    }
+</script>
+
+{% endblock %}

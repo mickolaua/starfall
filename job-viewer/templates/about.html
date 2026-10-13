@@ -1,0 +1,95 @@
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<style>
+    .about-header {
+        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+        color: var(--bs-white);
+        padding: 4rem 0;
+        margin-bottom: 3rem;
+    }
+    .feature-card {
+        transition: transform 0.2s;
+        border: none;
+        border-top: 4px solid #0d6efd;
+    }
+    .feature-card:hover {
+        transform: translateY(-5px);
+    }
+    .about-section {
+        padding: 3rem 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="about-header text-center">
+    <div class="container">
+        <h1 class="display-4 fw-bold">About STARFALL</h1>
+        <p class="lead">Advancing Astronomical Image Processing through Automation</p>
+    </div>
+</div>
+
+<div class="container">
+    <section class="about-section text-center">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <h2 class="mb-4">The Mission</h2>
+                <p class="text-body-secondary fs-5">
+                    STARFALL is a specialized platform designed to streamline the complex workflow of astronomical image processing.
+                    By bridging the gap between raw data acquisition and scientific analysis, we provide astronomers with a
+                    powerful, automated toolset to process high-volume image data with precision and reproducibility.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section class="about-section">
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm feature-card p-3">
+                    <div class="card-body text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-cpu fs-1 text-primary"></i>
+                        </div>
+                        <h4 class="card-title">Automated Pipelines</h4>
+                        <p class="card-text text-body-secondary">Integrated Prefect flows ensure that your image processing jobs are handled reliably, with proactive status tracking and error management.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm feature-card p-3">
+                    <div class="card-body text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-eye fs-1 text-primary"></i>
+                        </div>
+                        <h4 class="card-title">Advanced Visualization</h4>
+                        <p class="card-text text-body-secondary">Built-in FITS viewing with pan/zoom, colormaps, and WCS-aware region overlays lets you inspect products directly in your browser.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm feature-card p-3">
+                    <div class="card-body text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-cloud-arrow-up fs-1 text-primary"></i>
+                        </div>
+                        <h4 class="card-title">Scalable Processing</h4>
+                        <p class="card-text text-body-secondary">Designed to handle large datasets, STARFALL enables users to submit multiple jobs and track progress through a unified dashboard.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="about-section text-center mb-5">
+        <div class="card bg-body-secondary border-0 p-4">
+            <div class="card-body">
+                <h3 class="mb-3">Ready to process your data?</h3>
+                <p class="text-body-secondary mb-4">Join the STARFALL community and accelerate your astronomical research.</p>
+                <a href="{{ url_for('index') }}" class="btn btn-primary btn-lg">Get Started</a>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

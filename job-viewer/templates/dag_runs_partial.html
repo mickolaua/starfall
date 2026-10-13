@@ -1,0 +1,9 @@
+<div class="dag-runs">
+    {% for run in dag_runs %}
+        <div class="dag-run-card">
+            <h3>Start: {{ run['execution_date'] }}</h3>
+            <p>Status: {{ run['state'] }}</p>
+            <a href="{{ url_for('dag_run_details', dag_id=dag_id, run_id=run['dag_run_id']) }}">View Details</a>
+        </div>
+    {% endfor %}
+</div>

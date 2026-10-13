@@ -3,9 +3,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
-import struct
 from uuid import uuid4
-import zlib
 from flask import (
     Flask,
     abort,
@@ -33,7 +31,6 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import os
-import numpy as np
 from astropy.io import fits
 from flask_babel import Babel, _
 from faker import Faker
@@ -43,6 +40,13 @@ import secrets
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage, FileMultiDict
 from config import Config
+from fits_viewer import (
+    discover_reg_files,
+    fits_header_payload,
+    fits_preview_png,
+    normalize_reg_content,
+    normalize_structured_region,
+)
 
 
 # Telescopes (id, name in UI)
@@ -71,6 +75,23 @@ STACK_MODES = (
     ("sum", "Sum"),
 )
 
+# Catalog names (id, name in UI)
+ASTROMETRIC_CATALOGS = (
+    ("usnob", "USNO-B1.0"),
+    ("ps1", "PanSTARRS-DR1"),
+    ("sdss_dr12", "SDSD-DR12"),
+    ("gaia_edr3", "GAIA-EDR3"),
+    ("twomass", "2MASS-PSC"),
+)
+
+PHOTOMETRIC_CATALOGS = (
+    ("usnob", "USNO-B1.0"),
+    ("ps1", "PanSTARRS-DR1"),
+    ("sdss_dr12", "SDSD-DR12"),
+    ("twomass", "2MASS-PSC"),
+    ("gaia_edr3", "GAIA-EDR3"),
+)
+
 # Init application
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -81,7 +102,12 @@ os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
 fake = Faker()
 
-app.secret_key = secrets.token_hex(16)  # Change this to a random secret key
+# Prefer configured SECRET_KEY; fall back only for local boot (sessions reset on restart).
+app.secret_key = app.config.get("SECRET_KEY") or secrets.token_hex(16)
+if not app.config.get("SECRET_KEY"):
+    app.logger.warning(
+        "SECRET_KEY is not set; using an ephemeral key (sessions reset on restart)."
+    )
 Bootstrap(app)
 
 babel = Babel(app)
@@ -151,6 +177,7 @@ class Job(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(50), nullable=False)
+    stack_mode = db.Column(db.String(50), nullable=True)
 
     user = db.relationship("User", back_populates="jobs")
     user_id = db.Column(db.Integer, db.ForeignKey(User.id), nullable=False, index=True)
@@ -202,8 +229,22 @@ def change_password():
     return jsonify({"status": "success", "message": "Password updated successfully"})
 
 
+def _ensure_job_schema():
+    """Add columns that create_all will not add to an existing SQLite table."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    if "job" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("job")}
+    if "stack_mode" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE job ADD COLUMN stack_mode VARCHAR(50)"))
+
+
 with app.app_context():
     db.create_all()
+    _ensure_job_schema()
 
 
 def add_random_users(num_users):
@@ -228,6 +269,18 @@ def index():
     return render_template("index.html")
 
 
+def _safe_next_url(candidate: str | None) -> str | None:
+    """Allow only relative in-app redirects (block open redirects)."""
+    if not candidate:
+        return None
+    candidate = candidate.strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    if "\\" in candidate or "://" in candidate:
+        return None
+    return candidate
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -235,16 +288,15 @@ def login():
         password = request.form["password"]
         user = User.query.filter_by(username=username).first()
         if user and user.is_banned():
-            flash("You was banned")
+            flash("You were banned")
+            return render_template("login.html")
 
         if user and user.check_password(password):
             login_user(user)
             user.last_login_datetime = datetime.now(timezone.utc)
             db.session.commit()
-            next_page = request.args.get("next")  # Get the next page from the query parameters
-            return redirect(
-                next_page or url_for("user_page")
-            )  # Redirect to the next page or user page
+            next_page = _safe_next_url(request.args.get("next"))
+            return redirect(next_page or url_for("user_page"))
         flash("Invalid username or password")
     return render_template("login.html")
 
@@ -312,11 +364,18 @@ def admin():
                 else:
                     user.role = new_role
                     flash(f"User {user.username} role changed to {new_role}.")
+            elif action == "elevate_to_admin":
+                if user.role == "admin":
+                    flash(f"User {user.username} is already an admin.")
+                else:
+                    user.role = "admin"
+                    flash(f"User {user.username} elevated to admin.")
             elif action == "unban":
                 if user.id == current_user.id:
                     flash("You cannot unban yourself!", "danger")
-                user.role = "user"
-                flash(f"User {user.username} unbanned successfully.")
+                else:
+                    user.role = "user"
+                    flash(f"User {user.username} unbanned successfully.")
 
             db.session.commit()
             return redirect(url_for("admin"))
@@ -610,52 +669,8 @@ def _resolve_job_artifact(job: Job, filename: str) -> Path:
     return artifact
 
 
-def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
-    chunk = chunk_type + data
-    return struct.pack(">I", len(data)) + chunk + struct.pack(">I", zlib.crc32(chunk))
-
-
-def _fits_preview_png(filename: Path) -> bytes:
-    try:
-        raw_data = fits.getdata(filename, 0, memmap=True)
-    except ValueError:
-        raw_data = fits.getdata(filename, 0, memmap=False)
-    if raw_data is None:
-        raise ValueError("FITS image has no primary data")
-    data = np.asarray(raw_data)
-    while data.ndim > 2:
-        data = data[0]
-    if data.ndim != 2:
-        raise ValueError("FITS image must contain a two-dimensional image")
-
-    stride = max(1, int(np.ceil(max(data.shape) / 1200)))
-    pixels = np.asarray(data[::stride, ::stride], dtype=np.float32)
-
-    finite = np.isfinite(pixels)
-    if not finite.any():
-        raise ValueError("FITS image contains no finite pixels")
-
-    low, high = np.percentile(pixels[finite], (1, 99))
-    if high <= low:
-        scaled = np.where(finite, 127, 0).astype(np.uint8)
-    else:
-        scaled = np.clip(
-            (np.nan_to_num(pixels, nan=low, posinf=high, neginf=low) - low)
-            * (255.0 / (high - low)),
-            0,
-            255,
-        ).astype(np.uint8)
-
-    height, width = scaled.shape
-    scaled = np.flipud(scaled)
-    rows = b"".join(b"\x00" + row.tobytes() for row in scaled)
-    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", header)
-        + _png_chunk(b"IDAT", zlib.compress(rows))
-        + _png_chunk(b"IEND", b"")
-    )
+def _fits_preview_png(filename: Path, scale: str = "linear", colormap: str = "gray") -> bytes:
+    return fits_preview_png(filename, scale=scale, colormap=colormap)
 
 
 @app.route("/assets/js/js9/<path:path>", methods=["GET"])
@@ -696,67 +711,126 @@ def get_job_regions(job_id: str, filename: str):
         return jsonify({"error": str(e)}), 500
 
 
+PREVIEW_EXTENSIONS = {
+    ".bmp",
+    ".fit",
+    ".fits",
+    ".fts",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".webp",
+}
+TEXT_PREVIEW_EXTENSIONS = {".json", ".log", ".txt", ".proclog"}
+STACK_PRODUCT_MARKERS = ("-average", "-median", "-sum")
+INPUT_SUBDIRS = ("lights/", "darks/", "flats/", "light/", "dark/", "flat/")
+TEXT_PREVIEW_MAX_BYTES = 1_000_000
+
+
+def _resolve_stack_mode(job: Job) -> str | None:
+    if job.stack_mode:
+        return job.stack_mode
+    try:
+        flow_run = _get_prefect_flow_run_by_idempotency_key(job.job_id)
+        if flow_run:
+            params = flow_run.get("parameters") or {}
+            mode = params.get("stack_mode")
+            if mode:
+                return mode
+            options = params.get("options") or {}
+            return options.get("stack_mode")
+    except Exception as exc:
+        app.logger.error("Failed to resolve stack_mode for job %s: %s", job.job_id, exc)
+    return None
+
+
+def _is_previewable_image(relative_name: str) -> bool:
+    return Path(relative_name).suffix.lower() in PREVIEW_EXTENSIONS
+
+
+def _is_stacked_product(relative_name: str) -> bool:
+    name = relative_name.lower()
+    if any(name.startswith(prefix) for prefix in INPUT_SUBDIRS):
+        return False
+    # Job-root stacked products (e.g. *.calibrated.4-average.fit)
+    if "/" in relative_name:
+        return False
+    return any(marker in name for marker in STACK_PRODUCT_MARKERS)
+
+
+def _is_calibrated_image(relative_name: str) -> bool:
+    return _is_previewable_image(relative_name) and "calibrated" in Path(relative_name).name.lower()
+
+
+def _categorize_artifact(relative_name: str, stack_mode: str | None, has_stacked_root: bool) -> str:
+    suffix = Path(relative_name).suffix.lower()
+    name_lower = relative_name.lower()
+
+    if _is_previewable_image(relative_name):
+        if _is_stacked_product(relative_name):
+            return "processed_image"
+        if (stack_mode or "").lower() == "none" and _is_calibrated_image(relative_name):
+            return "processed_image"
+        # Legacy jobs without stack_mode: treat calibrated images as processed
+        # when there is no stacked root product.
+        if not stack_mode and not has_stacked_root and _is_calibrated_image(relative_name):
+            return "processed_image"
+        return "other"
+
+    if suffix == ".json":
+        return "json"
+    if suffix in {".log", ".proclog", ".txt"}:
+        return "log"
+    if suffix == ".reg" or name_lower.endswith(".reg"):
+        return "region"
+    return "other"
+
+
 @app.route("/api/jobs/<job_id>/results", methods=["GET"])
 @login_required
 def get_job_results(job_id: str):
     job = _owned_job(job_id)
     job_directory = _job_result_directory(job)
     if not job_directory.is_dir():
-        return jsonify({"files": [], "truncated": False})
+        return jsonify({"files": [], "truncated": False, "stack_mode": job.stack_mode})
 
-    preview_extensions = {
-        ".bmp",
-        ".fit",
-        ".fits",
-        ".fts",
-        ".gif",
-        ".jpeg",
-        ".jpg",
-        ".png",
-        ".webp",
-    }
-    artifacts = []
+    stack_mode = _resolve_stack_mode(job)
+    relative_paths = []
     for artifact in job_directory.rglob("*"):
         if artifact.is_symlink() or not artifact.is_file():
             continue
         resolved = artifact.resolve()
         if not resolved.is_relative_to(job_directory):
             continue
-        relative_name = artifact.relative_to(job_directory).as_posix()
+        relative_paths.append(artifact.relative_to(job_directory).as_posix())
 
-        # If it's a .reg file, we list it for download,
-        # but we don't treat it as a primary preview image.
-        if relative_name.endswith(".reg"):
-            item = {
-                "name": relative_name,
-                "size": artifact.stat().st_size,
-                "download_url": url_for(
-                    "download_job_result", job_id=job.job_id, filename=relative_name
-                ),
-            }
-            artifacts.append(item)
-            continue
+    has_stacked_root = any(_is_stacked_product(name) for name in relative_paths)
 
+    artifacts = []
+    for relative_name in relative_paths:
+        artifact = job_directory / relative_name
+        category = _categorize_artifact(relative_name, stack_mode, has_stacked_root)
         item = {
             "name": relative_name,
             "size": artifact.stat().st_size,
+            "category": category,
             "download_url": url_for(
                 "download_job_result", job_id=job.job_id, filename=relative_name
             ),
         }
-        if artifact.suffix.lower() in preview_extensions:
+
+        if _is_previewable_image(relative_name):
             item["preview_url"] = url_for(
                 "preview_job_result", job_id=job.job_id, filename=relative_name
             )
-
-            # Check for associated .reg file
             reg_path = artifact.with_suffix(".reg")
             if reg_path.exists():
                 item["reg_url"] = url_for(
-                    "get_job_regions", job_id=job.job_id, filename=reg_path.name
+                    "get_job_regions",
+                    job_id=job.job_id,
+                    filename=reg_path.relative_to(job_directory).as_posix(),
                 )
-
-            # Get original dimensions for coordinate scaling
             try:
                 if artifact.suffix.lower() in {".fit", ".fits", ".fts"}:
                     with fits.open(artifact) as hdul:
@@ -766,16 +840,62 @@ def get_job_results(job_id: str):
                             "height": header.get("NAXIS2", 0),
                         }
                 else:
-                    # For standard images, we can use PIL or just skip if not available
-                    # For now, we'll use a simple approach or add PIL
                     item["original_dimensions"] = None
             except Exception:
                 item["original_dimensions"] = None
 
+        if Path(relative_name).suffix.lower() in TEXT_PREVIEW_EXTENSIONS:
+            item["text_preview_url"] = url_for(
+                "get_job_text_preview", job_id=job.job_id, filename=relative_name
+            )
+
         artifacts.append(item)
 
     artifacts.sort(key=lambda item: item["name"].lower())
-    return jsonify({"files": artifacts[:200], "truncated": len(artifacts) > 200})
+    return jsonify(
+        {
+            "files": artifacts[:200],
+            "truncated": len(artifacts) > 200,
+            "stack_mode": stack_mode,
+        }
+    )
+
+
+@app.route("/api/jobs/<job_id>/text/<path:filename>", methods=["GET"])
+@login_required
+def get_job_text_preview(job_id: str, filename: str):
+    job = _owned_job(job_id)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in TEXT_PREVIEW_EXTENSIONS:
+        abort(400)
+
+    artifact = _resolve_job_artifact(job, filename)
+    size = artifact.stat().st_size
+    truncated = size > TEXT_PREVIEW_MAX_BYTES
+    raw = artifact.read_bytes()[:TEXT_PREVIEW_MAX_BYTES]
+    preview_bytes = len(raw)
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw.decode("utf-8", errors="replace")
+
+    if suffix == ".json":
+        try:
+            import json as json_lib
+
+            content = json_lib.dumps(json_lib.loads(content), indent=2, ensure_ascii=False)
+        except (ValueError, TypeError):
+            pass
+
+    return jsonify(
+        {
+            "name": filename,
+            "content": content,
+            "truncated": truncated,
+            "preview_bytes": preview_bytes,
+            "size": size,
+        }
+    )
 
 
 @app.route("/api/jobs/<job_id>/results/<path:filename>", methods=["GET"])
@@ -793,9 +913,11 @@ def download_job_result(job_id: str, filename: str):
 def preview_job_result(job_id: str, filename: str):
     job = _owned_job(job_id)
     artifact = _resolve_job_artifact(job, filename)
+    scale = request.args.get("scale", "linear")
+    colormap = request.args.get("colormap", "gray")
     if artifact.suffix.lower() in {".fit", ".fits", ".fts"}:
         try:
-            preview = _fits_preview_png(artifact)
+            preview = _fits_preview_png(artifact, scale=scale, colormap=colormap)
         except (OSError, TypeError, ValueError):
             return jsonify({"error": "This FITS file could not be previewed."}), 422
         return send_file(BytesIO(preview), mimetype="image/png")
@@ -809,6 +931,100 @@ def preview_job_result(job_id: str, filename: str):
     }:
         abort(404)
     return send_file(artifact, as_attachment=False)
+
+
+@app.route("/api/jobs/<job_id>/header/<path:filename>", methods=["GET"])
+@login_required
+def get_job_fits_header(job_id: str, filename: str):
+    job = _owned_job(job_id)
+    artifact = _resolve_job_artifact(job, filename)
+    if artifact.suffix.lower() not in {".fit", ".fits", ".fts"}:
+        return jsonify({"error": "header is only available for FITS images"}), 400
+    try:
+        return jsonify(fits_header_payload(artifact))
+    except Exception as exc:
+        app.logger.error("Failed to read FITS header for %s: %s", filename, exc)
+        return jsonify({"error": "failed to read FITS header"}), 500
+
+
+@app.route("/api/jobs/<job_id>/overlay/parse/<path:filename>", methods=["POST"])
+@login_required
+def parse_job_overlay(job_id: str, filename: str):
+    job = _owned_job(job_id)
+    artifact = _resolve_job_artifact(job, filename)
+    if artifact.suffix.lower() not in {".fit", ".fits", ".fts"}:
+        return jsonify({"error": "overlays are only available for FITS images"}), 400
+
+    data = request.get_json(silent=True) or {}
+    try:
+        if data.get("content"):
+            layer = normalize_reg_content(
+                data["content"],
+                artifact,
+                layer_name=data.get("name") or "uploaded.reg",
+                default_color=data.get("color") or "lime",
+            )
+        else:
+            coords = data.get("coords") or []
+            layer = normalize_structured_region(
+                artifact,
+                shape=data.get("shape") or "circle",
+                frame=data.get("frame") or "physical",
+                coords=[str(c) for c in coords],
+                color=data.get("color") or "cyan",
+                text=data.get("text") or "",
+                layer_name=data.get("name") or "Custom",
+            )
+        layer["source"] = "custom"
+        return jsonify({"layer": layer})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        app.logger.error("overlay parse failed: %s", exc)
+        return jsonify({"error": "failed to parse region"}), 500
+
+
+@app.route("/api/jobs/<job_id>/overlay/<path:filename>", methods=["GET"])
+@login_required
+def get_job_overlay(job_id: str, filename: str):
+    job = _owned_job(job_id)
+    artifact = _resolve_job_artifact(job, filename)
+    if artifact.suffix.lower() not in {".fit", ".fits", ".fts"}:
+        return jsonify({"layers": [], "error": "overlays are only available for FITS images"})
+
+    layers = []
+    for reg_path in discover_reg_files(artifact):
+        try:
+            content = reg_path.read_text(encoding="utf-8", errors="replace")
+            layer = normalize_reg_content(
+                content,
+                artifact,
+                layer_name=reg_path.name,
+            )
+            layer["source"] = "file"
+            layer["path"] = reg_path.relative_to(_job_result_directory(job)).as_posix()
+            layers.append(layer)
+        except Exception as exc:
+            app.logger.error("Failed to parse region file %s: %s", reg_path, exc)
+
+    width = layers[0]["width"] if layers else 0
+    height = layers[0]["height"] if layers else 0
+    if not layers:
+        try:
+            from fits_viewer import fits_image_shape
+
+            width, height = fits_image_shape(artifact)
+        except Exception:
+            pass
+
+    return jsonify(
+        {
+            "width": width,
+            "height": height,
+            "flipped": True,
+            "layers": layers,
+        }
+    )
 
 
 @app.route("/upload", methods=["GET", "POST"])
@@ -871,14 +1087,62 @@ def upload():
         telescopes=TELESCOPES,
         optical_filters=OPTICAL_FILTERS,
         stack_modes=STACK_MODES,
+        astrometric_catalogs=ASTROMETRIC_CATALOGS,
+        photometric_catalogs=PHOTOMETRIC_CATALOGS,
     )
+
+
+def _validate_submit_paths(data: dict) -> tuple[str, list[str], list[str], list[str]] | tuple[None, str]:
+    """Ensure working_dir and file paths stay under RESULT_FOLDER/<user_id>/<subid>."""
+    subid = data.get("subid") or ""
+    if not subid or "/" in subid or "\\" in subid or ".." in subid:
+        return None, "invalid job id"
+
+    user_root = (Path(app.config["RESULT_FOLDER"]) / str(current_user.id)).resolve()
+    expected_wd = (user_root / subid).resolve()
+    try:
+        working_dir = Path(data["working_dir"]).resolve()
+    except (KeyError, TypeError, OSError):
+        return None, "invalid working_dir"
+
+    if working_dir != expected_wd or not working_dir.is_relative_to(user_root):
+        return None, "working_dir is outside your result folder"
+
+    def _check_list(key: str) -> list[str] | None:
+        values = data.get(key) or []
+        if not isinstance(values, list):
+            return None
+        resolved = []
+        for item in values:
+            try:
+                path = Path(item).resolve()
+            except (TypeError, OSError):
+                return None
+            if not path.is_relative_to(working_dir):
+                return None
+            resolved.append(str(path))
+        return resolved
+
+    lights = _check_list("light_filenames")
+    darks = _check_list("dark_filenames")
+    flats = _check_list("flat_filenames")
+    if lights is None or darks is None or flats is None:
+        return None, "one or more file paths are outside the job folder"
+    return str(working_dir), lights, darks, flats
 
 
 @app.route("/submit", methods=["POST"])
 @login_required
 # @jwt_required  # Airflow (legacy)
 def post_submit():
-    data = request.json
+    data = request.json or {}
+
+    validated = _validate_submit_paths(data)
+    if validated[0] is None:
+        return jsonify(
+            {"status": "failed", "subid": data.get("subid"), "reason": validated[1]}
+        ), 400
+    working_dir, light_filenames, dark_filenames, flat_filenames = validated
 
     # Extract additional configuration from the request
     apex_conf = data.get("apex_conf", "default")
@@ -898,10 +1162,10 @@ def post_submit():
     # Airflow (legacy) request body — kept for rollback
     body = {
         "conf": {
-            "working_dir": data["working_dir"],
-            "light_filenames": data["light_filenames"],
-            "dark_filenames": data["dark_filenames"],
-            "flat_filenames": data["flat_filenames"],
+            "working_dir": working_dir,
+            "light_filenames": light_filenames,
+            "dark_filenames": dark_filenames,
+            "flat_filenames": flat_filenames,
             "apex_conf": apex_conf,
             "astrometric_catalog": astrometric_catalog,
             "transient_circle": circle_str,
@@ -909,7 +1173,7 @@ def post_submit():
             "stack_mode": data.get("stack_mode"),
             "group_frames": data.get("group_frames"),
             "group_frames_value": data.get("group_frames_value"),
-            "filter": data.get("filter"),
+            "band": data.get("filter"),
             "photometric_catalog": data.get("photometric_catalog"),
             "ra_field": ra_field,
             "dec_field": dec_field,
@@ -935,23 +1199,21 @@ def post_submit():
             "name": data["subid"],
             "idempotency_key": data["subid"],
             "parameters": {
-                "working_dir": data["working_dir"],
-                "light_filenames": data.get("light_filenames") or [],
-                "dark_filenames": data.get("dark_filenames") or [],
-                "flat_filenames": data.get("flat_filenames") or [],
+                "working_dir": working_dir,
+                "light_filenames": light_filenames,
+                "dark_filenames": dark_filenames,
+                "flat_filenames": flat_filenames,
                 "telescope": data.get("telescope"),
-                "options": {
-                    "apex_conf": apex_conf,
-                    "astrometric_catalog": astrometric_catalog,
-                    "transient_circle": circle_str,
-                    "stack_mode": data.get("stack_mode"),
-                    "group_frames": data.get("group_frames"),
-                    "group_frames_value": data.get("group_frames_value"),
-                    "filter": data.get("filter"),
-                    "photometric_catalog": data.get("photometric_catalog"),
-                    "ra_field": ra_field,
-                    "dec_field": dec_field,
-                },
+                "stack_mode": data.get("stack_mode"),
+                "group_frames": data.get("group_frames"),
+                "group_frames_value": data.get("group_frames_value"),
+                "band": data.get("filter"),
+                "astrometric_catalog": astrometric_catalog,
+                "photometric_catalog": data.get("photometric_catalog"),
+                "transient_circle": circle_str,
+                "ra_field": ra_field,
+                "dec_field": dec_field,
+                "apex_conf": apex_conf,
             },
         },
         timeout=30,
@@ -991,6 +1253,7 @@ def post_submit():
             user_id=current_user.id,
             job_id=data["subid"],
             status=standardize_status(state_type or "PENDING"),
+            stack_mode=data.get("stack_mode"),
         )
         db.session.add(job)
         db.session.commit()
@@ -999,21 +1262,38 @@ def post_submit():
     return jsonify({"status": "failed", "subid": data["subid"], "reason": json_resp}), 500
 
 
+def _callback_token_from_request() -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return (request.headers.get("X-JobViewer-Token") or "").strip()
+
+
+def _require_callback_token():
+    expected = (app.config.get("JOBVIEWER_CALLBACK_TOKEN") or "").strip()
+    provided = _callback_token_from_request()
+    if not expected or not provided or not secrets.compare_digest(provided, expected):
+        abort(401)
+
+
 @app.route("/api/jobs/update/<job_id>", methods=["POST"])
 def update_job(job_id: str):
     """
+    Worker callback to update job status.
+    Requires Authorization: Bearer <token> or X-JobViewer-Token header.
     !TODO: Update several fields: start_date, end_date, status
     """
-    data = request.get_json()
+    _require_callback_token()
+    data = request.get_json(silent=True) or {}
     job = Job.query.filter_by(job_id=job_id).one_or_none()
     if not job:
-        return jsonify({"status": "fail", "reason": f"job with job_id={job_id} not found"})
-    if data.get("status", ''):
+        return jsonify({"status": "fail", "reason": f"job with job_id={job_id} not found"}), 404
+    if data.get("status", ""):
         new_status = standardize_status(data["status"])
         db.session.query(Job).filter_by(job_id=job_id).update({"status": new_status})
         db.session.commit()
     else:
-        return jsonify({"status": "fail", "reason": f"status for job_id={job_id} not fetched"})
+        return jsonify({"status": "fail", "reason": f"status for job_id={job_id} not fetched"}), 400
     return jsonify({"status": "success"})
 
 
@@ -1028,12 +1308,15 @@ def get_submit(subid: str):
 @login_required
 def view_image(job_id: str, filename: str):
     _owned_job(job_id)
-    return render_template("js9_view.html", job_id=job_id, filename=filename)
+    return render_template("fits_view.html", job_id=job_id, filename=filename)
 
 
 @app.route("/user/<user_id>/submissions", methods=["GET"])
 @login_required
 def get_user_submitions_ajax(user_id: int):
+    if int(user_id) != current_user.id and not current_user.is_admin():
+        abort(403)
+
     user = User.query.filter_by(id=user_id).one_or_none()
     if not user:
         return jsonify({"status": "failed"})
@@ -1080,17 +1363,19 @@ def get_user_submitions_ajax(user_id: int):
 
 @app.route("/api/internal/job-complete", methods=["POST"])
 def job_complete():
-    data = request.json
+    """Worker callback: mark a single job successful. Requires callback token."""
+    _require_callback_token()
+    data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
-    results = data.get("results")
+    if not job_id:
+        return jsonify({"status": "fail", "reason": "job_id required"}), 400
 
-    # Logic to save 'results' to your DB for 'job_id'
-    # update_job_in_db(job_id, results, status='SUCCESS')
-    db.session.query(Job).filter_by(user_id=current_user.id).update(
-        {Job.job_id: job_id, Job.status: "success"}
-    )
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if not job:
+        return jsonify({"status": "fail", "reason": f"job with job_id={job_id} not found"}), 404
+
+    job.status = standardize_status(data.get("status") or "SUCCESS")
     db.session.commit()
-
     return jsonify({"status": "received"}), 200
 
 
@@ -1122,20 +1407,18 @@ def job_complete():
 
 if __name__ == "__main__":
     with app.app_context():
-        # Specify the number of random users to add
-        num_users_to_add = 100
-        add_random_users(num_users_to_add)
-        print(f"Added {num_users_to_add} random users to the database.")
+        if app.config.get("BOOTSTRAP_ADMIN"):
+            existing_admin = User.query.filter_by(username="admin").first()
+            password = app.config.get("BOOTSTRAP_ADMIN_PASSWORD") or ""
+            if existing_admin:
+                print("Admin user already exists.")
+            elif not password:
+                print("JOBVIEWER_BOOTSTRAP_ADMIN set but BOOTSTRAP_ADMIN_PASSWORD missing; skip.")
+            else:
+                new_admin = User(username="admin", role="admin")
+                new_admin.set_password(password)
+                db.session.add(new_admin)
+                db.session.commit()
+                print("Admin user created successfully.")
 
-        existing_admin = User.query.filter_by(username="admin").first()
-        if existing_admin:
-            print("Admin user already exists.")
-        else:
-            # Create a new admin user
-            new_admin = User(username="admin", role="admin")
-            new_admin.set_password("admin")
-            db.session.add(new_admin)
-            db.session.commit()
-            print("Admin user created successfully.")
-
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true", "yes"})

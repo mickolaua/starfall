@@ -1,0 +1,32 @@
+{% extends "basic_page.html" %}
+
+{% block content %}
+
+<div class="container-fluid mt-5">
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="text-center">Automatic image processing</h2>
+                    <p>
+                        Performs a complete image processing: 
+                        <ul>
+                            <li>image calibration</li>
+                            <li>quality control</li>
+                            <li>stacking</li>
+                            <li>measurement</li>
+                            <li>aperture photometry</li>
+                            <li>PSF photometry</li>
+                            <li>astrometric reduction</li>
+                            <li>photometric calibration</li>
+                            <li>search for candidate transient</li>
+                        </ul>
+                    </p>
+                    <a href="{{ url_for('upload') }}" class="btn btn-primary w-100">Start</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

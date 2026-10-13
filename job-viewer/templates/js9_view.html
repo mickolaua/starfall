@@ -1,0 +1,140 @@
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9allinone.css') }}">
+<style>
+    #js9-container {
+        width: 100%;
+        height: calc(100vh - 150px);
+        background-color: black;
+        border: 1px solid #444;
+        position: relative;
+    }
+    .viewer-controls {
+        margin-bottom: 1rem;
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+    #js9-loader {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        color: white;
+        flex-direction: column;
+        gap: 1rem;
+    }
+</style>
+<script src="{{ url_for('static', filename='js/js9/js/jquery-3.5.0.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js/fabric-v5.2.1.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js/dhtmlwindow.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9support.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9prefs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9plugins.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="h4 mb-0">JS9 Image Viewer</h2>
+            <p class="text-body-secondary small mb-0">File: <code>{{ filename }}</code></p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('get_submit', subid=job_id) }}">
+            <i class="bi bi-arrow-left"></i> Back to Results
+        </a>
+    </div>
+
+    <div class="viewer-controls">
+        <button id="toggleRegions" class="btn btn-primary btn-sm">Toggle Regions</button>
+        <span id="statusMsg" class="small text-body-secondary">Initializing JS9 Engine...</span>
+    </div>
+
+
+    <div class="JS9Menubar"></div>
+    <div id="js9" style="width: 100%; height: calc(100vh - 150px); background-color: black; border: 1px solid #444;">
+        <div id="js9-loader">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span>Loading Astronomical Image...</span>
+        </div>
+    </div>
+    <div class="JS9Statusbar"></div>
+
+    
+</div>
+{% endblock %}
+
+{% block scripts %}
+
+<script>
+    $(document).ready(async function() {
+        const job_id = "{{ job_id }}";
+        const filename = "{{ filename }}";
+        const reg_filename = filename.split('.').slice(0, -1).join('.') + '.reg';
+
+        const imgUrl = `/api/jobs/${job_id}/raw/${filename}`;
+        const regUrl = `/api/jobs/${job_id}/regions/${reg_filename}`;
+
+        async function initJS9() {
+            const checkReady = () => {
+                return typeof JS9 !== 'undefined' && document.getElementById('JS9');
+            };
+
+            // Poll for JS9 readiness
+            while (!checkReady()) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            try {
+                const js9 = new JS9.Image({
+                    container: 'js9',
+                    image: imgUrl
+                });
+
+                js9.on('load', function() {
+                    $('#js9-loader').fadeOut(300);
+                    $('#statusMsg').text('Image loaded. Fetching regions...');
+
+                    // Load regions
+                    js9.loadRegions(regUrl, function(err) {
+                        if (err) {
+                            console.error("Regions load error:", err);
+                            $('#statusMsg').text('Image loaded. No regions found or error loading them.');
+                        } else {
+                            $('#statusMsg').text('Image and regions loaded.');
+                        }
+                    });
+                });
+
+                // Toggle Regions Button
+                $('#toggleRegions').on('click', function() {
+                    const regions = js9.getRegions();
+                    if (regions) {
+                        const isVisible = regions.visible;
+                        js9.setRegions({ visible: !isVisible });
+                        $(this).toggleClass('btn-primary btn-outline-primary');
+                    }
+                });
+            } catch (e) {
+                console.error("JS9 Initialization failed:", e);
+                $('#statusMsg').text('Critical error initializing JS9 viewer: ' + e.message);
+                $('#js9-loader').html('<span class="text-danger">Initialization Error</span>');
+            }
+        }
+
+        // Call the function outside of its own definition to avoid infinite recursion
+        initJS9();
+    });
+</script>
+{% endblock %}

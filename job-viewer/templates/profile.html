@@ -1,0 +1,289 @@
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<style>
+    .profile-container {
+        max-width: 1000px;
+    }
+    .status-badge-SUCCESS { background-color: #198754; color: white; }
+    .status-badge-FAILED { background-color: #dc3545; color: white; }
+    .status-badge-RUNNING { background-color: #0d6efd; color: white; }
+    .status-badge-QUEUED { background-color: #6c757d; color: white; }
+    .status-badge-UNKNOWN { background-color: #adb5bd; color: white; }
+
+    .nav-tabs .nav-link {
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container profile-container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0">User Profile</h1>
+            <p class="text-body-secondary">Manage your account and track your image processing jobs.</p>
+        </div>
+        {% if current_user.is_admin() %}
+        <a href="{{ url_for('admin') }}" class="btn btn-outline-primary">
+            <i class="bi bi-shield-lock"></i> Admin Panel
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Tabs Navigation -->
+    <ul class="nav nav-tabs mb-4" id="profileTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#submissions" type="button" role="tab" aria-controls="submissions" aria-selected="true">
+                <i class="bi bi-list-ul me-2"></i>My Submissions
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false">
+                <i class="bi bi-gear me-2"></i>Account Settings
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tabs Content -->
+    <div class="tab-content" id="profileTabsContent">
+
+        <!-- Submissions Tab -->
+        <div class="tab-pane fade show active" id="submissions" role="tabpanel" aria-labelledby="submissions-tab">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="row g-3 mb-4 align-items-end">
+                        <div class="col-md-8">
+                            <label for="submissionSearch" class="form-label fw-semibold">Search Submissions</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" id="submissionSearch" class="form-control" placeholder="Enter Submission ID...">
+                                <button class="btn btn-primary" id="searchBtn">Search</button>
+                                <button class="btn btn-outline-secondary" id="clearSearchBtn">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle" id="userSubmissionsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col">Submission ID</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col" class="text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated via AJAX -->
+                            </tbody>
+                        </table>
+                        <div id="noResults" class="text-center py-4 d-none">
+                            <i class="bi bi-search fs-2 text-body-secondary"></i>
+                            <p class="text-body-secondary mt-2">No submissions found matching your search.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-pane fade" id="settings" role="tabpanel" aria-labelledby="settings-tab">
+            <div class="row g-4">
+                <!-- User Info -->
+                <div class="col-md-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <div class="mb-3">
+                                <i class="bi bi-person-circle fs-1 text-primary"></i>
+                            </div>
+                            <h5 class="card-title mb-1">{{ current_user.username }}</h5>
+                            <p class="text-body-secondary small mb-3">Member since {{ current_user.signup_datetime.strftime('%Y-%m-%d') if current_user.signup_datetime else 'Unknown' }}</p>
+                            <span class="badge {{ 'bg-primary' if current_user.role == 'admin' else 'bg-secondary' }}">
+                                {{ current_user.role | capitalize }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Forms -->
+                <div class="col-md-8">
+                    <!-- Feedback Alerts -->
+                    <div id="profileAlerts" class="mb-3"></div>
+
+                    <!-- Update Username -->
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-transparent fw-bold">Update Username</div>
+                        <div class="card-body">
+                            <form id="updateUsernameForm" class="row g-3">
+                                <div class="col-md-9">
+                                    <input type="text" name="username" class="form-control" value="{{ current_user.username }}" required>
+                                </div>
+                                <div class="col-md-3 d-grid">
+                                    <button type="submit" class="btn btn-primary">Update</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Change Password -->
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-transparent fw-bold">Change Password</div>
+                        <div class="card-body">
+                            <form id="changePasswordForm" class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small">Current Password</label>
+                                    <input type="password" name="current_password" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small">New Password</label>
+                                    <input type="password" name="new_password" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small">Confirm New Password</label>
+                                    <input type="password" name="confirm_password" class="form-control" required>
+                                </div>
+                                <div class="col-md-6 d-grid align-items-end">
+                                    <button type="submit" class="btn btn-primary">Update Password</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        const userId = "{{ current_user.id }}";
+        const resultsUrl = `/user/${userId}/submissions`;
+
+        // --- Submissions Logic ---
+
+        function fetchSubmissions(query = '') {
+            const $tbody = $('#userSubmissionsTable tbody');
+            const $noResults = $('#noResults');
+
+            $tbody.empty();
+            $noResults.addClass('d-none');
+
+            $.ajax({
+                url: `${resultsUrl}?q=${encodeURIComponent(query)}`,
+                type: 'GET',
+                success: function(response) {
+                    if (response.status !== 'successful') {
+                        alert('Failed to fetch submissions');
+                        return;
+                    }
+
+                    const submissions = response.submissions;
+                    if (submissions.length === 0) {
+                        $noResults.removeClass('d-none');
+                        return;
+                    }
+
+                    submissions.forEach(job => {
+                        const statusClass = `status-badge-${job.status.toUpperCase()}`;
+                        const row = `
+                            <tr>
+                                <td class="fw-semibold">${job.subid}</td>
+                                <td><span class="badge ${statusClass}">${job.status.toUpperCase()}</span></td>
+                                <td class="text-end">
+                                    <a href="/submit/${job.subid}" class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>`;
+                        $tbody.append(row);
+                    });
+                },
+                error: function() {
+                    alert('An error occurred while fetching submissions.');
+                }
+            });
+        }
+
+        $('#searchBtn').on('click', function() {
+            const query = $('#submissionSearch').val();
+            fetchSubmissions(query);
+        });
+
+        $('#submissionSearch').on('keypress', function(e) {
+            if (e.which == 13) {
+                $('#searchBtn').click();
+            }
+        });
+
+        $('#clearSearchBtn').on('click', function() {
+            $('#submissionSearch').val('');
+            fetchSubmissions('');
+        });
+
+        // Initial load
+        fetchSubmissions();
+
+        // --- Account Logic ---
+
+        function showAlert(message, type = 'success') {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>`;
+            $('#profileAlerts').html(alertHtml);
+            // Auto-hide alert after 5 seconds
+            setTimeout(() => {
+                $('.alert').fadeOut('slow');
+            }, 5000);
+        }
+
+        $('#updateUsernameForm').on('submit', function(e) {
+            e.preventDefault();
+            const formData = {
+                username: $(this).find('input[name="username"]').val()
+            };
+
+            $.ajax({
+                url: '/profile/update',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(formData),
+                success: function(response) {
+                    showAlert(response.message, 'success');
+                    // Optionally update the displayed name in the User Info card
+                    $('.card-title').text(formData.username);
+                },
+                error: function(xhr) {
+                    const msg = xhr.responseJSON ? xhr.responseJSON.message : 'An error occurred';
+                    showAlert(msg, 'danger');
+                }
+            });
+        });
+
+        $('#changePasswordForm').on('submit', function(e) {
+            e.preventDefault();
+            const formData = {
+                current_password: $(this).find('input[name="current_password"]').val(),
+                new_password: $(this).find('input[name="new_password"]').val(),
+                confirm_password: $(this).find('input[name="confirm_password"]').val()
+            };
+
+            $.ajax({
+                url: '/profile/change-password',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(formData),
+                success: function(response) {
+                    showAlert(response.message, 'success');
+                    $('#changePasswordForm')[0].reset();
+                },
+                error: function(xhr) {
+                    const msg = xhr.responseJSON ? xhr.responseJSON.message : 'An error occurred';
+                    showAlert(msg, 'danger');
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

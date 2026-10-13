@@ -171,8 +171,8 @@
     let textPreviewModal = null;
 
     const CATEGORY_LABELS = {
-        log: 'Logs and text',
-        json: 'JSON',
+        log: 'Logs and text lists',
+        json: 'JSON files',
         region: 'Regions',
         other: 'Other products',
     };
@@ -225,7 +225,8 @@
             const payload = await response.json();
             textPreviewBody.textContent = payload.content || '';
             if (payload.truncated) {
-                textPreviewMeta.textContent = `Showing the first ${formatSize(payload.content.length)} of ${formatSize(payload.size)}.`;
+                const shownBytes = payload.preview_bytes ?? payload.size;
+                textPreviewMeta.textContent = `Showing the first ${formatSize(shownBytes)} of ${formatSize(payload.size)}.`;
                 textPreviewMeta.hidden = false;
             }
         } catch (error) {
@@ -338,7 +339,7 @@
             const viewBtn = document.createElement('a');
             viewBtn.className = 'btn btn-sm btn-outline-info';
             viewBtn.href = `/view/{{ subid }}/${file.name}`;
-            viewBtn.textContent = 'JS9 View';
+            viewBtn.textContent = 'View';
             actions.append(viewBtn);
         }
 
@@ -368,7 +369,7 @@
             const viewBtn = document.createElement('a');
             viewBtn.className = 'btn btn-sm btn-outline-info';
             viewBtn.href = `/view/{{ subid }}/${file.name}`;
-            viewBtn.textContent = 'JS9 View';
+            viewBtn.textContent = 'View';
             actions.append(viewBtn);
         }
         actions.append(createDownloadLink(file));

@@ -1,0 +1,681 @@
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<style>
+    .viewer-shell {
+        max-width: 1400px;
+    }
+    .viewer-stage-wrap {
+        position: relative;
+        height: calc(100vh - 280px);
+        min-height: 420px;
+        background: #111;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.375rem;
+        overflow: hidden;
+        touch-action: none;
+    }
+    #viewerStage {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        cursor: crosshair;
+    }
+    #viewerStage.is-panning {
+        cursor: grabbing;
+    }
+    #viewerContent {
+        position: relative;
+        display: inline-block;
+        line-height: 0;
+    }
+    #viewerImage {
+        display: block;
+        max-width: none;
+        user-select: none;
+        -webkit-user-drag: none;
+    }
+    #regionSvg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        overflow: visible;
+    }
+    .layer-list {
+        max-height: 180px;
+        overflow: auto;
+    }
+    .header-cards {
+        max-height: 260px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.72rem;
+        white-space: pre;
+        margin: 0;
+        background: var(--bs-tertiary-bg);
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+    }
+    .coord-fields .form-control {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+    }
+    .zoom-slider {
+        width: 140px;
+    }
+    .cursor-readout {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+        min-height: 1.4em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid viewer-shell py-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-3">
+        <div>
+            <h1 class="h4 mb-1">FITS viewer</h1>
+            <p class="text-body-secondary small mb-0">File: <code>{{ filename }}</code></p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{{ url_for('get_submit', subid=job_id) }}">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to results
+        </a>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-9">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <label class="small mb-0" for="colormapSelect">Colormap</label>
+                <select id="colormapSelect" class="form-select form-select-sm" style="width: auto;">
+                    <option value="gray" selected>Gray</option>
+                    <option value="viridis">Viridis</option>
+                    <option value="inferno">Inferno</option>
+                    <option value="hot">Hot</option>
+                    <option value="cool">Cool</option>
+                </select>
+                <label class="small mb-0" for="scaleSelect">Scale</label>
+                <select id="scaleSelect" class="form-select form-select-sm" style="width: auto;">
+                    <option value="linear" selected>Linear</option>
+                    <option value="log">Log</option>
+                    <option value="sqrt">Sqrt</option>
+                </select>
+                <div class="form-check form-switch mb-0 ms-2">
+                    <input class="form-check-input" type="checkbox" id="regionsMaster" checked>
+                    <label class="form-check-label small" for="regionsMaster">Regions</label>
+                </div>
+                <span id="statusMsg" class="small text-body-secondary ms-auto">Loading…</span>
+            </div>
+
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="zoomOutBtn" title="Zoom out">−</button>
+                <input type="range" class="form-range zoom-slider" id="zoomSlider" min="0" max="100" value="0" step="1">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="zoomInBtn" title="Zoom in">+</button>
+                <span class="small" id="zoomLabel">Zoom: 100%</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="zoomResetBtn">Reset</button>
+            </div>
+
+            <div class="viewer-stage-wrap" id="stageWrap">
+                <div id="viewerStage">
+                    <div id="viewerContent">
+                        <img id="viewerImage" alt="FITS preview" hidden>
+                        <svg id="regionSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+                    </div>
+                </div>
+            </div>
+            <div class="cursor-readout text-body-secondary mt-2" id="cursorReadout">Move cursor over the image for coordinates.</div>
+            <p class="form-text mt-1 mb-0">Drag to pan, scroll to zoom. Overlays follow pan/zoom.</p>
+        </div>
+
+        <div class="col-lg-3">
+            <div class="card mb-3" id="headerCard" hidden>
+                <div class="card-body">
+                    <details>
+                        <summary class="h6 mb-0" style="cursor: pointer;">FITS header</summary>
+                        <pre class="header-cards mt-2" id="headerCards">Loading…</pre>
+                    </details>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">Region layers</h2>
+                    <div id="layerList" class="layer-list d-flex flex-column gap-2"></div>
+                    <p class="small text-body-secondary mb-0 mt-2" id="layerEmpty">No region layers yet.</p>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">Add region</h2>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="shapeSelect">Shape</label>
+                        <select id="shapeSelect" class="form-select form-select-sm">
+                            <option value="circle" selected>Circle</option>
+                            <option value="box">Box</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="frameSelect">Coordinate frame</label>
+                        <select id="frameSelect" class="form-select form-select-sm">
+                            <option value="physical" selected>physical / image (pixels)</option>
+                            <option value="icrs">icrs</option>
+                            <option value="fk5">fk5</option>
+                        </select>
+                    </div>
+                    <div class="coord-fields d-flex flex-column gap-2 mb-2" id="coordFields"></div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="regionLabel">Label</label>
+                        <input id="regionLabel" class="form-control form-control-sm" type="text" placeholder="optional">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="regionColor">Color</label>
+                        <input id="regionColor" class="form-control form-control-sm" type="text" value="cyan">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary w-100" id="addRegionBtn">Add region</button>
+                    <div class="alert alert-danger small mt-2 mb-0 py-2" id="addRegionError" hidden></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6">Load .reg file</h2>
+                    <input type="file" id="regFileInput" class="form-control form-control-sm" accept=".reg,text/plain">
+                    <p class="form-text small mb-0 mt-2">Parsed with this image’s WCS when the file uses sky coordinates.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
+<script>
+(function () {
+    const jobId = {{ job_id | tojson }};
+    const filename = {{ filename | tojson }};
+    const isFits = /\.(fit|fits|fts)$/i.test(filename);
+
+    // Absolute panzoom caps; effective min is the fit-to-view scale after contain.
+    const ABS_MIN_SCALE = 0.05;
+    const RELATIVE_MAX_ZOOM = 20; // 2000% relative to fit
+
+    const previewBase = `/api/jobs/${jobId}/preview/${filename}`;
+    const overlayUrl = `/api/jobs/${jobId}/overlay/${filename}`;
+    const parseUrl = `/api/jobs/${jobId}/overlay/parse/${filename}`;
+    const headerUrl = `/api/jobs/${jobId}/header/${filename}`;
+
+    const img = document.getElementById('viewerImage');
+    const svg = document.getElementById('regionSvg');
+    const stage = document.getElementById('viewerStage');
+    const content = document.getElementById('viewerContent');
+    const statusMsg = document.getElementById('statusMsg');
+    const layerList = document.getElementById('layerList');
+    const layerEmpty = document.getElementById('layerEmpty');
+    const colormapSelect = document.getElementById('colormapSelect');
+    const scaleSelect = document.getElementById('scaleSelect');
+    const regionsMaster = document.getElementById('regionsMaster');
+    const shapeSelect = document.getElementById('shapeSelect');
+    const frameSelect = document.getElementById('frameSelect');
+    const coordFields = document.getElementById('coordFields');
+    const addRegionBtn = document.getElementById('addRegionBtn');
+    const addRegionError = document.getElementById('addRegionError');
+    const regFileInput = document.getElementById('regFileInput');
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomLabel = document.getElementById('zoomLabel');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomResetBtn = document.getElementById('zoomResetBtn');
+    const cursorReadout = document.getElementById('cursorReadout');
+    const headerCard = document.getElementById('headerCard');
+    const headerCards = document.getElementById('headerCards');
+
+    let panzoom = null;
+    let fitScale = 1;
+    let maxScale = RELATIVE_MAX_ZOOM;
+    let fitsWidth = 0;
+    let fitsHeight = 0;
+    let flipped = true;
+    let layers = [];
+    let layerIdSeq = 1;
+    let wcsInfo = null;
+    let updatingZoomUi = false;
+
+    function previewUrl() {
+        const params = new URLSearchParams({
+            colormap: colormapSelect.value,
+            scale: scaleSelect.value,
+            t: String(Date.now()),
+        });
+        return `${previewBase}?${params.toString()}`;
+    }
+
+    function scaleToSlider(scale) {
+        const minS = Math.max(fitScale, ABS_MIN_SCALE);
+        const maxS = Math.max(maxScale, minS * 1.01);
+        const clamped = Math.max(minS, Math.min(maxS, scale));
+        const t = (Math.log(clamped) - Math.log(minS)) / (Math.log(maxS) - Math.log(minS));
+        return Math.round(Math.max(0, Math.min(100, t * 100)));
+    }
+
+    function sliderToScale(value) {
+        const minS = Math.max(fitScale, ABS_MIN_SCALE);
+        const maxS = Math.max(maxScale, minS * 1.01);
+        const t = Number(value) / 100;
+        return minS * Math.pow(maxS / minS, t);
+    }
+
+    function syncZoomUi() {
+        if (!panzoom) return;
+        const scale = panzoom.getScale();
+        updatingZoomUi = true;
+        zoomSlider.value = String(scaleToSlider(scale));
+        // Relative to fit-to-view so the left end is 100%, not ~190% of CSS transform.
+        zoomLabel.textContent = `Zoom: ${Math.round((scale / fitScale) * 100)}%`;
+        updatingZoomUi = false;
+    }
+
+    function setZoom(scale, animate = true) {
+        if (!panzoom) return;
+        const clamped = Math.max(fitScale, Math.min(maxScale, scale));
+        panzoom.zoom(clamped, { animate });
+        syncZoomUi();
+    }
+
+    function calibrateFitScale() {
+        if (!panzoom) return;
+        // Temporarily allow small scales so reset/contain can compute the true fit scale.
+        panzoom.setOptions({ minScale: ABS_MIN_SCALE, maxScale: RELATIVE_MAX_ZOOM * 50 });
+        panzoom.reset({ animate: false });
+        fitScale = Math.max(panzoom.getScale(), ABS_MIN_SCALE);
+        maxScale = fitScale * RELATIVE_MAX_ZOOM;
+        panzoom.setOptions({ minScale: fitScale, maxScale: maxScale });
+        panzoom.zoom(fitScale, { animate: false });
+        syncZoomUi();
+    }
+
+    function renderCoordFields() {
+        const shape = shapeSelect.value;
+        const sky = ['icrs', 'fk5'].includes(frameSelect.value);
+        const fields = shape === 'circle'
+            ? [
+                { id: 'c0', label: sky ? 'RA' : 'X (pixels, 1-based)', placeholder: sky ? '00:51:55.586' : '512' },
+                { id: 'c1', label: sky ? 'Dec' : 'Y (pixels, 1-based)', placeholder: sky ? '+24:10:50.70' : '512' },
+                { id: 'c2', label: sky ? 'Radius (e.g. 5")' : 'Radius (pixels)', placeholder: sky ? '5"' : '10' },
+            ]
+            : [
+                { id: 'c0', label: sky ? 'RA' : 'X (pixels, 1-based)', placeholder: sky ? '00:51:55.586' : '512' },
+                { id: 'c1', label: sky ? 'Dec' : 'Y (pixels, 1-based)', placeholder: sky ? '+24:10:50.70' : '512' },
+                { id: 'c2', label: sky ? 'Width' : 'Width (pixels)', placeholder: sky ? '10"' : '20' },
+                { id: 'c3', label: sky ? 'Height' : 'Height (pixels)', placeholder: sky ? '10"' : '20' },
+            ];
+        coordFields.replaceChildren();
+        fields.forEach(field => {
+            const wrap = document.createElement('div');
+            const label = document.createElement('label');
+            label.className = 'form-label small mb-1';
+            label.htmlFor = field.id;
+            label.textContent = field.label;
+            const input = document.createElement('input');
+            input.id = field.id;
+            input.className = 'form-control form-control-sm';
+            input.placeholder = field.placeholder;
+            wrap.append(label, input);
+            coordFields.append(wrap);
+        });
+    }
+
+    function fitsToDisplay(x, y) {
+        const w = img.naturalWidth || fitsWidth;
+        const h = img.naturalHeight || fitsHeight;
+        if (!fitsWidth || !fitsHeight) return { x: 0, y: 0 };
+        const sx = (x / fitsWidth) * w;
+        const sy = flipped
+            ? ((fitsHeight - 1 - y) / fitsHeight) * h
+            : (y / fitsHeight) * h;
+        return { x: sx, y: sy };
+    }
+
+    function displayToFits(dx, dy) {
+        const w = img.naturalWidth || fitsWidth;
+        const h = img.naturalHeight || fitsHeight;
+        if (!fitsWidth || !fitsHeight || !w || !h) return null;
+        const x = (dx / w) * fitsWidth;
+        const y = flipped
+            ? (fitsHeight - 1) - (dy / h) * fitsHeight
+            : (dy / h) * fitsHeight;
+        return { x, y };
+    }
+
+    function formatRa(deg) {
+        let hours = deg / 15;
+        hours = ((hours % 24) + 24) % 24;
+        const h = Math.floor(hours);
+        const mFloat = (hours - h) * 60;
+        const m = Math.floor(mFloat);
+        const s = (mFloat - m) * 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`;
+    }
+
+    function formatDec(deg) {
+        const sign = deg < 0 ? '-' : '+';
+        const abs = Math.abs(deg);
+        const d = Math.floor(abs);
+        const mFloat = (abs - d) * 60;
+        const m = Math.floor(mFloat);
+        const s = (mFloat - m) * 60;
+        return `${sign}${String(d).padStart(2, '0')}:${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`;
+    }
+
+    function pixelToSky(x0, y0) {
+        // x0,y0 are 0-based FITS pixels; WCS CRPIX is 1-based
+        if (!wcsInfo || !wcsInfo.available || !wcsInfo.cd || !wcsInfo.crpix || !wcsInfo.crval) {
+            return null;
+        }
+        const dx = (x0 + 1) - wcsInfo.crpix[0];
+        const dy = (y0 + 1) - wcsInfo.crpix[1];
+        const cd = wcsInfo.cd;
+        const ra = wcsInfo.crval[0] + cd[0][0] * dx + cd[0][1] * dy;
+        const dec = wcsInfo.crval[1] + cd[1][0] * dx + cd[1][1] * dy;
+        return { ra, dec };
+    }
+
+    function scaleLen(len) {
+        const w = img.naturalWidth || fitsWidth;
+        if (!fitsWidth) return len;
+        return (len / fitsWidth) * w;
+    }
+
+    function redrawRegions() {
+        svg.replaceChildren();
+        if (!regionsMaster.checked || !img.naturalWidth) return;
+
+        svg.setAttribute('width', String(img.naturalWidth));
+        svg.setAttribute('height', String(img.naturalHeight));
+        svg.style.width = img.naturalWidth + 'px';
+        svg.style.height = img.naturalHeight + 'px';
+
+        layers.forEach(layer => {
+            if (!layer.visible) return;
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            (layer.shapes || []).forEach(shape => {
+                const color = shape.color || layer.color || 'lime';
+                if (shape.type === 'circle') {
+                    const p = fitsToDisplay(shape.x, shape.y);
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', p.x);
+                    circle.setAttribute('cy', p.y);
+                    circle.setAttribute('r', Math.max(1, scaleLen(shape.r)));
+                    circle.setAttribute('fill', 'none');
+                    circle.setAttribute('stroke', color);
+                    circle.setAttribute('stroke-width', '1.5');
+                    group.append(circle);
+                } else if (shape.type === 'box') {
+                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    const topLeft = fitsToDisplay(shape.x - shape.w / 2, shape.y + shape.h / 2);
+                    const bottomRight = fitsToDisplay(shape.x + shape.w / 2, shape.y - shape.h / 2);
+                    const x = Math.min(topLeft.x, bottomRight.x);
+                    const y = Math.min(topLeft.y, bottomRight.y);
+                    const w = Math.abs(bottomRight.x - topLeft.x);
+                    const h = Math.abs(bottomRight.y - topLeft.y);
+                    rect.setAttribute('x', x);
+                    rect.setAttribute('y', y);
+                    rect.setAttribute('width', w);
+                    rect.setAttribute('height', h);
+                    rect.setAttribute('fill', 'none');
+                    rect.setAttribute('stroke', color);
+                    rect.setAttribute('stroke-width', '1.5');
+                    group.append(rect);
+                }
+            });
+            svg.append(group);
+        });
+    }
+
+    function renderLayerList() {
+        layerList.replaceChildren();
+        layerEmpty.hidden = layers.length > 0;
+        layers.forEach(layer => {
+            const row = document.createElement('div');
+            row.className = 'form-check';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.className = 'form-check-input';
+            input.id = layer.id;
+            input.checked = layer.visible;
+            input.addEventListener('change', () => {
+                layer.visible = input.checked;
+                redrawRegions();
+            });
+            const label = document.createElement('label');
+            label.className = 'form-check-label small';
+            label.htmlFor = layer.id;
+            label.textContent = `${layer.name} (${(layer.shapes || []).length})`;
+            row.append(input, label);
+            layerList.append(row);
+        });
+    }
+
+    function addLayer(layerData, visible = true) {
+        const layer = {
+            id: `layer-${layerIdSeq++}`,
+            name: layerData.name || 'layer',
+            color: layerData.color || 'lime',
+            shapes: layerData.shapes || [],
+            visible,
+        };
+        if (layerData.width) fitsWidth = layerData.width;
+        if (layerData.height) fitsHeight = layerData.height;
+        if (typeof layerData.flipped === 'boolean') flipped = layerData.flipped;
+        layers.push(layer);
+        renderLayerList();
+        redrawRegions();
+    }
+
+    function ensurePanzoom() {
+        if (typeof Panzoom === 'undefined') return;
+        if (!panzoom) {
+            panzoom = Panzoom(content, {
+                maxScale: RELATIVE_MAX_ZOOM,
+                minScale: ABS_MIN_SCALE,
+                contain: 'outside',
+            });
+            stage.addEventListener('wheel', panzoom.zoomWithWheel);
+            content.addEventListener('panzoomchange', syncZoomUi);
+            content.addEventListener('panzoomzoom', syncZoomUi);
+        }
+        // Recalibrate after every image load so fit = slider left = 100%.
+        requestAnimationFrame(() => calibrateFitScale());
+    }
+
+    function pointerToImageCoords(clientX, clientY) {
+        if (!img.naturalWidth) return null;
+        const rect = img.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        const dx = ((clientX - rect.left) / rect.width) * img.naturalWidth;
+        const dy = ((clientY - rect.top) / rect.height) * img.naturalHeight;
+        if (dx < 0 || dy < 0 || dx > img.naturalWidth || dy > img.naturalHeight) return null;
+        return { dx, dy };
+    }
+
+    function updateCursorReadout(event) {
+        const imgPt = pointerToImageCoords(event.clientX, event.clientY);
+        if (!imgPt) {
+            cursorReadout.textContent = 'Move cursor over the image for coordinates.';
+            return;
+        }
+        const fits = displayToFits(imgPt.dx, imgPt.dy);
+        if (!fits) {
+            cursorReadout.textContent = 'Coordinates unavailable.';
+            return;
+        }
+        // 1-based physical for display
+        const x1 = fits.x + 1;
+        const y1 = fits.y + 1;
+        let text = `x=${x1.toFixed(2)}  y=${y1.toFixed(2)}`;
+        const sky = pixelToSky(fits.x, fits.y);
+        if (sky) {
+            text += `  |  RA=${formatRa(sky.ra)}  Dec=${formatDec(sky.dec)}`;
+        }
+        cursorReadout.textContent = text;
+    }
+
+    function loadPreview() {
+        statusMsg.textContent = 'Loading preview…';
+        img.hidden = true;
+        const url = isFits ? previewUrl() : previewBase;
+        img.onload = () => {
+            img.hidden = false;
+            ensurePanzoom();
+            redrawRegions();
+            statusMsg.textContent = 'Ready.';
+        };
+        img.onerror = () => {
+            statusMsg.textContent = 'Failed to load preview.';
+        };
+        img.src = url;
+    }
+
+    async function loadOverlays() {
+        if (!isFits) return;
+        try {
+            const response = await fetch(overlayUrl, { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error('overlay request failed');
+            const payload = await response.json();
+            fitsWidth = payload.width || fitsWidth;
+            fitsHeight = payload.height || fitsHeight;
+            flipped = payload.flipped !== false;
+            (payload.layers || []).forEach(layer => addLayer(layer, true));
+            if (!(payload.layers || []).length) {
+                statusMsg.textContent = 'Preview ready. No region files found.';
+            }
+        } catch (err) {
+            console.error(err);
+            statusMsg.textContent = 'Preview ready. Region overlay failed to load.';
+        }
+    }
+
+    async function loadHeader() {
+        if (!isFits) return;
+        headerCard.hidden = false;
+        try {
+            const response = await fetch(headerUrl, { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error('header request failed');
+            const payload = await response.json();
+            if (payload.naxis1) fitsWidth = payload.naxis1;
+            if (payload.naxis2) fitsHeight = payload.naxis2;
+            wcsInfo = payload.wcs || null;
+            const lines = (payload.cards || []).map(card => {
+                const key = (card.key || '').padEnd(8, ' ');
+                const value = String(card.value ?? '');
+                const comment = card.comment ? ` / ${card.comment}` : '';
+                return `${key}= ${value}${comment}`;
+            });
+            headerCards.textContent = lines.join('\n') || '(empty header)';
+        } catch (err) {
+            console.error(err);
+            headerCards.textContent = 'Failed to load FITS header.';
+        }
+    }
+
+    colormapSelect.addEventListener('change', loadPreview);
+    scaleSelect.addEventListener('change', loadPreview);
+    regionsMaster.addEventListener('change', redrawRegions);
+    shapeSelect.addEventListener('change', renderCoordFields);
+    frameSelect.addEventListener('change', renderCoordFields);
+
+    zoomInBtn.addEventListener('click', () => setZoom((panzoom ? panzoom.getScale() : 1) * 1.25));
+    zoomOutBtn.addEventListener('click', () => setZoom((panzoom ? panzoom.getScale() : 1) * 0.8));
+    zoomResetBtn.addEventListener('click', () => {
+        if (!panzoom) return;
+        calibrateFitScale();
+    });
+    zoomSlider.addEventListener('input', () => {
+        if (updatingZoomUi) return;
+        setZoom(sliderToScale(zoomSlider.value), false);
+    });
+
+    stage.addEventListener('pointermove', updateCursorReadout);
+    stage.addEventListener('pointerleave', () => {
+        cursorReadout.textContent = 'Move cursor over the image for coordinates.';
+    });
+    stage.addEventListener('pointerdown', () => stage.classList.add('is-panning'));
+    stage.addEventListener('pointerup', () => stage.classList.remove('is-panning'));
+    stage.addEventListener('pointercancel', () => stage.classList.remove('is-panning'));
+
+    addRegionBtn.addEventListener('click', async () => {
+        addRegionError.hidden = true;
+        if (!isFits) {
+            addRegionError.textContent = 'Custom regions require a FITS image.';
+            addRegionError.hidden = false;
+            return;
+        }
+        const shape = shapeSelect.value;
+        const coords = [];
+        const needed = shape === 'circle' ? 3 : 4;
+        for (let i = 0; i < needed; i++) {
+            const el = document.getElementById(`c${i}`);
+            if (!el || !el.value.trim()) {
+                addRegionError.textContent = 'Fill all coordinate fields.';
+                addRegionError.hidden = false;
+                return;
+            }
+            coords.push(el.value.trim());
+        }
+        try {
+            const response = await fetch(parseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({
+                    shape,
+                    frame: frameSelect.value,
+                    coords,
+                    color: document.getElementById('regionColor').value || 'cyan',
+                    text: document.getElementById('regionLabel').value || '',
+                    name: 'Custom',
+                }),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || 'parse failed');
+            addLayer(payload.layer, true);
+            statusMsg.textContent = 'Custom region added.';
+        } catch (err) {
+            addRegionError.textContent = err.message || 'Failed to add region.';
+            addRegionError.hidden = false;
+        }
+    });
+
+    regFileInput.addEventListener('change', async () => {
+        const file = regFileInput.files && regFileInput.files[0];
+        if (!file) return;
+        if (!isFits) {
+            statusMsg.textContent = 'Region files require a FITS image.';
+            return;
+        }
+        try {
+            const content = await file.text();
+            const response = await fetch(parseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ content, name: file.name }),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || 'parse failed');
+            addLayer(payload.layer, true);
+            statusMsg.textContent = `Loaded ${file.name}.`;
+        } catch (err) {
+            statusMsg.textContent = err.message || 'Failed to load region file.';
+        } finally {
+            regFileInput.value = '';
+        }
+    });
+
+    renderCoordFields();
+    loadPreview();
+    loadOverlays();
+    loadHeader();
+})();
+</script>
+{% endblock %}

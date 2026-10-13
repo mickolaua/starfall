@@ -1,0 +1,42 @@
+{% extends "basic_page.html" %}
+
+{% block content %}
+<h1>Deployment: {{ dag_id }}</h1>
+{# Airflow (legacy): <h1>DAG: {{ dag_id }}</h1> #}
+<h2>Flow Runs</h2>
+{# Airflow (legacy): <h2>DAG Runs</h2> #}
+<div id="dag-runs">
+    {% for run in dag_runs %}
+    <div class="card mt-4">
+        <div class="card-body">
+            <h3>Start: {{ run['execution_date'] }}</h3>
+            <p>Status: {{ run['state'] }}</p>
+            <a href="{{ url_for('dag_run_details', dag_id=dag_id, run_id=run['dag_run_id']) }}">View Details</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+<a href="{{ url_for('dag') }}">Back to Deployments</a>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    function fetchDagRuns() {
+        $.ajax({
+            url: "{{ url_for('dag_details', dag_id=dag_id) }}",
+            method: "GET",
+            success: function (data) {
+                $('#dag-runs').html(data);
+            },
+            error: function () {
+                console.error("Error fetching flow runs.");
+            }
+        });
+    }
+
+    const updateIntervalSeconds = 5;
+    setInterval(fetchDagRuns, updateIntervalSeconds * 1000);
+</script>
+{% endblock %}

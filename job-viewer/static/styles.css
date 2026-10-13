@@ -1,0 +1,40 @@
+.dag-runs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    /* Автоматическое заполнение колонок */
+    gap: 10px;
+    /* Отступы между карточками */
+    margin: 20px;
+    /* Отступы вокруг сетки */
+}
+
+.dag-run-card {
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    color: var(--bs-body-color);
+    border-radius: 5px;
+    padding: 15px;
+    /* Отступы внутри карточки */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    box-sizing: border-box;
+    /* Учитывает отступы и границы в ширине */
+    /* Убираем overflow и text-overflow */
+}
+
+.dag-run-card h3 {
+    margin: 0;
+    font-size: 1.2em;
+    /* Убираем overflow и text-overflow */
+}
+
+.dag-run-card p {
+    margin: 5px 0;
+    /* Убираем overflow и text-overflow */
+}
+
+.error {
+    color: red;
+}
+.valid {
+    color: green;
+}
