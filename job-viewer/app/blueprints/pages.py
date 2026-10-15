@@ -1,6 +1,4 @@
-import os
 from pathlib import Path
-from uuid import uuid4
 
 import requests
 from flask import (
@@ -14,8 +12,6 @@ from flask import (
     send_from_directory,
 )
 from flask_login import current_user, login_required
-from werkzeug.datastructures import FileStorage
-from werkzeug.utils import secure_filename
 
 from ..compat import url_for
 from ..constants import (
@@ -28,7 +24,7 @@ from ..constants import (
 from ..extensions import db
 from ..models import User
 from ..services.auth import role_required
-from ..services.jobs import owned_job
+from ..services.jobs import owned_job, store_uploaded_frames
 from ..services.prefect import (
     normalize_flow_run_for_ui,
     prefect_headers,
@@ -197,54 +193,13 @@ def upload():
         lights = request.files.getlist("lights")
         darks = request.files.getlist("darks")
         flats = request.files.getlist("flats")
-        if not lights:
+        result = store_uploaded_frames(current_user, lights, darks, flats)
+        if isinstance(result, tuple):
             print("No light images to upload")
             return jsonify(
-                {"status": "failed", "uploaded": 0, "reason": "no light images"}
-            )
-
-        job_id = uuid4().hex
-        outdir = os.path.join(
-            current_app.config["RESULT_FOLDER"], str(current_user.id), str(job_id)
-        )
-        light_dir = os.path.realpath(os.path.join(outdir, "lights"))
-        dark_dir = os.path.realpath(os.path.join(outdir, "darks"))
-        flat_dir = os.path.realpath(os.path.join(outdir, "flats"))
-
-        def store_files(file_list: list[FileStorage], out_dir: str) -> list[str]:
-            filenames = []
-            for file in file_list:
-                if file and file.filename.split(".")[-1] in [
-                    "fit",
-                    "fits",
-                    "fts",
-                    "zip",
-                    "7z",
-                    "gz",
-                    "tar",
-                    "rar",
-                ]:
-                    filename = secure_filename(file.filename)
-                    os.makedirs(out_dir, exist_ok=True)
-                    outpath = os.path.join(out_dir, filename)
-                    file.save(outpath)
-                    filenames.append(outpath)
-            return filenames
-
-        light_filenames = store_files(lights, light_dir)
-        dark_filenames = store_files(darks, dark_dir)
-        flat_filenames = store_files(flats, flat_dir)
-
-        return jsonify(
-            {
-                "status": "successful",
-                "working_dir": outdir,
-                "subid": job_id,
-                "light_filenames": light_filenames,
-                "dark_filenames": dark_filenames,
-                "flat_filenames": flat_filenames,
-            }
-        )
+                {"status": "failed", "uploaded": 0, "reason": result[1]}
+            ), 400
+        return jsonify(result)
 
     return render_template(
         "upload.html",

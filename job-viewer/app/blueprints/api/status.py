@@ -1,19 +1,14 @@
-from datetime import datetime
-
-import requests
 from flask import Blueprint, abort, current_app, jsonify, request
 from flask_login import current_user, login_required
 
 from ...extensions import db
 from ...models import Job, User
-from ...services.jobs import sync_job_status_from_prefect, validate_submit_paths
+from ...models.job import apply_job_status
+from ...services.auth import api_login_required
+from ...services.jobs import create_prefect_job, sync_job_status_from_prefect
 from ...services.prefect import (
     extract_state_type,
     get_prefect_flow_run_by_idempotency_key,
-    prefect_headers,
-    prefect_url,
-    resolve_prefect_deployment_id,
-    standardize_status,
 )
 
 api_status_bp = Blueprint("api_status", __name__)
@@ -60,7 +55,7 @@ def change_password():
 
 
 @api_status_bp.route("/api/dag/<dag_id>/run/<run_id>", methods=["GET"])
-@login_required
+@api_login_required
 def get_dag_run_details_ajax(dag_id: str, run_id: str):
     job = Job.query.filter_by(job_id=run_id, user_id=current_user.id).one_or_none()
     if job is None:
@@ -71,7 +66,7 @@ def get_dag_run_details_ajax(dag_id: str, run_id: str):
         flow_run = get_prefect_flow_run_by_idempotency_key(run_id)
         if flow_run:
             state_type = extract_state_type(flow_run.get("state"))
-            job.status = standardize_status(state_type)
+            apply_job_status(job, state_type)
             db.session.commit()
             dag_run_details = {
                 "state": state_type.lower() if state_type else job.status.lower(),
@@ -87,125 +82,15 @@ def get_dag_run_details_ajax(dag_id: str, run_id: str):
 
 
 @api_status_bp.route("/submit", methods=["POST"])
-@login_required
+@api_login_required
 def post_submit():
-    data = request.json or {}
-
-    validated = validate_submit_paths(data)
-    if validated[0] is None:
-        return (
-            jsonify(
-                {"status": "failed", "subid": data.get("subid"), "reason": validated[1]}
-            ),
-            400,
-        )
-    working_dir, light_filenames, dark_filenames, flat_filenames = validated
-
-    apex_conf = data.get("apex_conf", "default")
-    astrometric_catalog = data.get("astrometric_catalog", "gaia")
-    transient_circle = data.get("transient_circle", {})
-
-    ra_field = data.get("ra_field")
-    dec_field = data.get("dec_field")
-
-    if isinstance(transient_circle, dict):
-        circle_str = (
-            f"{transient_circle.get('ra', '0')},"
-            f"{transient_circle.get('dec', '0')},"
-            f"{transient_circle.get('radius', '10')}"
-        )
-    else:
-        circle_str = transient_circle
-
-    # Airflow (legacy) request body — kept for rollback parity with run_app.py
-    _ = {
-        "conf": {
-            "working_dir": working_dir,
-            "light_filenames": light_filenames,
-            "dark_filenames": dark_filenames,
-            "flat_filenames": flat_filenames,
-            "apex_conf": apex_conf,
-            "astrometric_catalog": astrometric_catalog,
-            "transient_circle": circle_str,
-            "telescope": data.get("telescope"),
-            "stack_mode": data.get("stack_mode"),
-            "group_frames": data.get("group_frames"),
-            "group_frames_value": data.get("group_frames_value"),
-            "band": data.get("filter"),
-            "photometric_catalog": data.get("photometric_catalog"),
-            "ra_field": ra_field,
-            "dec_field": dec_field,
-        },
-        "dag_run_id": data["subid"],
-        "logical_date": datetime.now().astimezone().isoformat(),
-    }
-
-    deployment_id = resolve_prefect_deployment_id()
-    if not deployment_id:
-        return (
-            jsonify(
-                {
-                    "status": "failed",
-                    "subid": data["subid"],
-                    "reason": "Prefect deployment not found",
-                }
-            ),
-            500,
-        )
-
-    response = requests.post(
-        prefect_url(f"/deployments/{deployment_id}/create_flow_run"),
-        headers=prefect_headers(),
-        json={
-            "name": data["subid"],
-            "idempotency_key": data["subid"],
-            "parameters": {
-                "working_dir": working_dir,
-                "light_filenames": light_filenames,
-                "dark_filenames": dark_filenames,
-                "flat_filenames": flat_filenames,
-                "telescope": data.get("telescope"),
-                "stack_mode": data.get("stack_mode"),
-                "group_frames": data.get("group_frames"),
-                "group_frames_value": data.get("group_frames_value"),
-                "band": data.get("filter"),
-                "astrometric_catalog": astrometric_catalog,
-                "photometric_catalog": data.get("photometric_catalog"),
-                "transient_circle": circle_str,
-                "ra_field": ra_field,
-                "dec_field": dec_field,
-                "apex_conf": apex_conf,
-            },
-        },
-        timeout=30,
-    )
-
-    try:
-        json_resp = response.json()
-    except ValueError:
-        json_resp = {"raw": response.text}
-    print(json_resp)
-
-    if response.status_code in (200, 201):
-        state_type = extract_state_type(json_resp.get("state"))
-        job = Job(
-            user_id=current_user.id,
-            job_id=data["subid"],
-            status=standardize_status(state_type or "PENDING"),
-            stack_mode=data.get("stack_mode"),
-        )
-        db.session.add(job)
-        db.session.commit()
-        return jsonify({"status": "successful", "subid": data["subid"]})
-
-    return (
-        jsonify({"status": "failed", "subid": data["subid"], "reason": json_resp}),
-        500,
-    )
+    data = request.get_json(silent=True) or {}
+    body, status = create_prefect_job(current_user, data)
+    return jsonify(body), status
 
 
 @api_status_bp.route("/user/<user_id>/submissions", methods=["GET"])
-@login_required
+@api_login_required
 def get_user_submitions_ajax(user_id: int):
     if int(user_id) != current_user.id and not current_user.is_admin():
         abort(403)

@@ -2,8 +2,8 @@ from flask import Blueprint, jsonify, request
 
 from ...extensions import db
 from ...models import Job
+from ...models.job import apply_job_status
 from ...services.auth import require_callback_token
-from ...services.prefect import standardize_status
 
 callbacks_bp = Blueprint("callbacks", __name__)
 
@@ -23,8 +23,7 @@ def update_job(job_id: str):
             404,
         )
     if data.get("status", ""):
-        new_status = standardize_status(data["status"])
-        db.session.query(Job).filter_by(job_id=job_id).update({"status": new_status})
+        apply_job_status(job, data["status"])
         db.session.commit()
     else:
         return (
@@ -52,6 +51,6 @@ def job_complete():
             404,
         )
 
-    job.status = standardize_status(data.get("status") or "SUCCESS")
+    apply_job_status(job, data.get("status") or "SUCCESS")
     db.session.commit()
     return jsonify({"status": "received"}), 200

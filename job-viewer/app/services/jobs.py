@@ -1,7 +1,12 @@
+import os
 from pathlib import Path
+from uuid import uuid4
 
+import requests
 from flask import abort, current_app
 from flask_login import current_user
+from werkzeug.datastructures import FileStorage
+from werkzeug.utils import secure_filename
 
 from ..constants import (
     INPUT_SUBDIRS,
@@ -9,8 +14,26 @@ from ..constants import (
     STACK_PRODUCT_MARKERS,
 )
 from ..extensions import db
-from ..models import Job
-from .prefect import get_prefect_flow_run_by_idempotency_key
+from ..models import Job, User
+from ..models.job import apply_job_status
+from .prefect import (
+    extract_state_type,
+    get_prefect_flow_run_by_idempotency_key,
+    prefect_headers,
+    prefect_url,
+    resolve_prefect_deployment_id,
+    standardize_status,
+)
+
+
+def _iso(dt) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+_UPLOAD_EXTENSIONS = frozenset(
+    {"fit", "fits", "fts", "zip", "7z", "gz", "tar", "rar"}
+)
 
 
 def owned_job(job_id: str) -> Job:
@@ -43,6 +66,9 @@ def resolve_job_artifact(job: Job, filename: str) -> Path:
 def resolve_stack_mode(job: Job) -> str | None:
     if job.stack_mode:
         return job.stack_mode
+    stored = job.get_job_parameters() or {}
+    if stored.get("stack_mode"):
+        return stored.get("stack_mode")
     try:
         flow_run = get_prefect_flow_run_by_idempotency_key(job.job_id)
         if flow_run:
@@ -105,13 +131,15 @@ def categorize_artifact(
 
 def validate_submit_paths(
     data: dict,
+    user: User | None = None,
 ) -> tuple[str, list[str], list[str], list[str]] | tuple[None, str]:
     """Ensure working_dir and file paths stay under RESULT_FOLDER/<user_id>/<subid>."""
     subid = data.get("subid") or ""
     if not subid or "/" in subid or "\\" in subid or ".." in subid:
         return None, "invalid job id"
 
-    user_root = (Path(current_app.config["RESULT_FOLDER"]) / str(current_user.id)).resolve()
+    owner = user or current_user
+    user_root = (Path(current_app.config["RESULT_FOLDER"]) / str(owner.id)).resolve()
     expected_wd = (user_root / subid).resolve()
     try:
         working_dir = Path(data["working_dir"]).resolve()
@@ -147,7 +175,198 @@ def validate_submit_paths(
 def sync_job_status_from_prefect(job: Job) -> None:
     flow_run = get_prefect_flow_run_by_idempotency_key(job.job_id)
     if flow_run:
-        from .prefect import extract_state_type, standardize_status
-
-        job.status = standardize_status(extract_state_type(flow_run.get("state")))
+        apply_job_status(job, extract_state_type(flow_run.get("state")))
         db.session.commit()
+
+
+def _store_file_list(file_list: list[FileStorage], out_dir: str) -> list[str]:
+    filenames = []
+    for file in file_list:
+        if not file or not file.filename:
+            continue
+        ext = file.filename.rsplit(".", 1)[-1].lower()
+        if ext not in _UPLOAD_EXTENSIONS:
+            continue
+        filename = secure_filename(file.filename)
+        os.makedirs(out_dir, exist_ok=True)
+        outpath = os.path.join(out_dir, filename)
+        file.save(outpath)
+        filenames.append(outpath)
+    return filenames
+
+
+def store_uploaded_frames(
+    user: User,
+    lights: list[FileStorage],
+    darks: list[FileStorage] | None = None,
+    flats: list[FileStorage] | None = None,
+) -> dict | tuple[None, str]:
+    """Save multipart frames under RESULT_FOLDER/<user_id>/<subid>/{lights,darks,flats}."""
+    if not lights:
+        return None, "no light images"
+
+    job_id = uuid4().hex
+    outdir = os.path.join(
+        current_app.config["RESULT_FOLDER"], str(user.id), str(job_id)
+    )
+    light_dir = os.path.realpath(os.path.join(outdir, "lights"))
+    dark_dir = os.path.realpath(os.path.join(outdir, "darks"))
+    flat_dir = os.path.realpath(os.path.join(outdir, "flats"))
+
+    light_filenames = _store_file_list(lights, light_dir)
+    if not light_filenames:
+        return None, "no valid light images"
+
+    return {
+        "status": "successful",
+        "working_dir": outdir,
+        "subid": job_id,
+        "light_filenames": light_filenames,
+        "dark_filenames": _store_file_list(darks or [], dark_dir),
+        "flat_filenames": _store_file_list(flats or [], flat_dir),
+    }
+
+
+def _format_transient_circle(transient_circle) -> str:
+    if isinstance(transient_circle, dict):
+        return (
+            f"{transient_circle.get('ra', '0')},"
+            f"{transient_circle.get('dec', '0')},"
+            f"{transient_circle.get('radius', '10')}"
+        )
+    return transient_circle
+
+
+def create_prefect_job(user: User, data: dict) -> tuple[dict, int]:
+    """
+    Validate paths, create Prefect flow run, persist Job row.
+    Returns (json_body, http_status).
+    """
+    validated = validate_submit_paths(data, user=user)
+    if validated[0] is None:
+        return (
+            {"status": "failed", "subid": data.get("subid"), "reason": validated[1]},
+            400,
+        )
+    working_dir, light_filenames, dark_filenames, flat_filenames = validated
+
+    apex_conf = data.get("apex_conf", "default")
+    astrometric_catalog = data.get("astrometric_catalog", "gaia")
+    circle_str = _format_transient_circle(data.get("transient_circle", {}))
+    ra_field = data.get("ra_field")
+    dec_field = data.get("dec_field")
+
+    deployment_id = resolve_prefect_deployment_id()
+    if not deployment_id:
+        return (
+            {
+                "status": "failed",
+                "subid": data.get("subid"),
+                "reason": "Prefect deployment not found",
+            },
+            500,
+        )
+
+    # Task input only — never include lifecycle status in this dict.
+    parameters = {
+        "working_dir": working_dir,
+        "light_filenames": light_filenames,
+        "dark_filenames": dark_filenames,
+        "flat_filenames": flat_filenames,
+        "telescope": data.get("telescope"),
+        "stack_mode": data.get("stack_mode"),
+        "group_frames": data.get("group_frames"),
+        "group_frames_value": data.get("group_frames_value"),
+        "band": data.get("filter"),
+        "astrometric_catalog": astrometric_catalog,
+        "photometric_catalog": data.get("photometric_catalog"),
+        "transient_circle": circle_str,
+        "ra_field": ra_field,
+        "dec_field": dec_field,
+        "apex_conf": apex_conf,
+    }
+
+    response = requests.post(
+        prefect_url(f"/deployments/{deployment_id}/create_flow_run"),
+        headers=prefect_headers(),
+        json={
+            "name": data["subid"],
+            "idempotency_key": data["subid"],
+            "parameters": parameters,
+        },
+        timeout=30,
+    )
+
+    try:
+        json_resp = response.json()
+    except ValueError:
+        json_resp = {"raw": response.text}
+    print(json_resp)
+
+    if response.status_code in (200, 201):
+        state_type = extract_state_type(json_resp.get("state"))
+        job = Job(
+            user_id=user.id,
+            job_id=data["subid"],
+            status=standardize_status(state_type or "PENDING"),
+            stack_mode=data.get("stack_mode"),
+        )
+        job.set_job_parameters(parameters)
+        apply_job_status(job, state_type or "PENDING")
+        db.session.add(job)
+        db.session.commit()
+        return {"status": "successful", "subid": data["subid"]}, 200
+
+    return (
+        {"status": "failed", "subid": data.get("subid"), "reason": json_resp},
+        500,
+    )
+
+
+def list_user_jobs(user: User, query: str = "") -> list[dict]:
+    jobs = list(user.jobs)
+    if query:
+        q = query.lower()
+        jobs = [job for job in jobs if q in job.job_id.lower()]
+
+    for job in jobs:
+        if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
+            try:
+                sync_job_status_from_prefect(job)
+            except Exception as exc:
+                current_app.logger.error(
+                    "Failed to sync job %s: %s", job.job_id, exc
+                )
+
+    return [
+        {
+            "subid": job.job_id,
+            "status": job.status,
+            "stack_mode": job.stack_mode,
+            "started_at": _iso(job.started_at),
+            "finished_at": _iso(job.finished_at),
+        }
+        for job in jobs
+    ]
+
+
+def get_job_status_payload(user: User, job_id: str) -> tuple[dict, int]:
+    job = Job.query.filter_by(job_id=job_id, user_id=user.id).one_or_none()
+    if job is None:
+        return {"status": "failed", "reason": "job not found"}, 404
+
+    if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
+        try:
+            sync_job_status_from_prefect(job)
+        except Exception as exc:
+            current_app.logger.error("Failed to sync job %s: %s", job.job_id, exc)
+
+    return {
+        "status": "successful",
+        "subid": job.job_id,
+        "job_status": job.status,
+        "stack_mode": job.stack_mode,
+        "started_at": _iso(job.started_at),
+        "finished_at": _iso(job.finished_at),
+        "parameters": job.get_job_parameters(),
+    }, 200

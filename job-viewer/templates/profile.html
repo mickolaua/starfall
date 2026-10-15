@@ -126,7 +126,7 @@
                     </div>
 
                     <!-- Change Password -->
-                    <div class="card shadow-sm">
+                    <div class="card shadow-sm mb-4">
                         <div class="card-header bg-transparent fw-bold">Change Password</div>
                         <div class="card-body">
                             <form id="changePasswordForm" class="row g-3">
@@ -148,7 +148,52 @@
                             </form>
                         </div>
                     </div>
+
+                    <!-- API Token -->
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-transparent fw-bold">API Token</div>
+                        <div class="card-body">
+                            <p class="text-body-secondary small mb-3">
+                                Use a personal Bearer token with <code>/api/v1</code> clients.
+                                The raw token is shown only once when you generate or rotate it.
+                            </p>
+                            <p class="mb-3">
+                                Status:
+                                <span id="apiTokenStatus" class="badge bg-secondary">Checking…</span>
+                            </p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-primary" id="rotateApiTokenBtn">
+                                    Generate / rotate token
+                                </button>
+                                <button type="button" class="btn btn-outline-danger" id="revokeApiTokenBtn">
+                                    Revoke token
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API token once modal -->
+<div class="modal fade" id="apiTokenModal" tabindex="-1" aria-labelledby="apiTokenModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="apiTokenModalLabel">Your API token</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-danger small">Copy this now. You will not be able to see it again.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control font-monospace" id="apiTokenValue" readonly>
+                    <button class="btn btn-outline-secondary" type="button" id="copyApiTokenBtn">Copy</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
             </div>
         </div>
     </div>
@@ -284,6 +329,79 @@
                 }
             });
         });
+
+        // --- API Token ---
+
+        function refreshTokenStatus() {
+            $.ajax({
+                url: '/api/v1/auth/token',
+                type: 'GET',
+                success: function(response) {
+                    const $badge = $('#apiTokenStatus');
+                    if (response.has_token) {
+                        $badge.removeClass('bg-secondary bg-danger').addClass('bg-success').text('Active');
+                    } else {
+                        $badge.removeClass('bg-secondary bg-success').addClass('bg-secondary').text('None');
+                    }
+                },
+                error: function() {
+                    $('#apiTokenStatus').removeClass('bg-success').addClass('bg-danger').text('Unavailable');
+                }
+            });
+        }
+
+        $('#rotateApiTokenBtn').on('click', function() {
+            if (!confirm('Generate a new API token? Any existing token will stop working.')) {
+                return;
+            }
+            $.ajax({
+                url: '/api/v1/auth/token',
+                type: 'POST',
+                success: function(response) {
+                    $('#apiTokenValue').val(response.token || '');
+                    const modal = new bootstrap.Modal(document.getElementById('apiTokenModal'));
+                    modal.show();
+                    refreshTokenStatus();
+                    showAlert('API token generated. Copy it from the dialog.', 'success');
+                },
+                error: function(xhr) {
+                    const msg = xhr.responseJSON ? (xhr.responseJSON.message || xhr.responseJSON.reason) : 'Failed to generate token';
+                    showAlert(msg, 'danger');
+                }
+            });
+        });
+
+        $('#revokeApiTokenBtn').on('click', function() {
+            if (!confirm('Revoke your API token? Clients using it will fail until you generate a new one.')) {
+                return;
+            }
+            $.ajax({
+                url: '/api/v1/auth/token',
+                type: 'DELETE',
+                success: function(response) {
+                    showAlert(response.message || 'Token revoked', 'success');
+                    refreshTokenStatus();
+                },
+                error: function(xhr) {
+                    const msg = xhr.responseJSON ? (xhr.responseJSON.message || 'Failed to revoke token') : 'Failed to revoke token';
+                    showAlert(msg, 'danger');
+                }
+            });
+        });
+
+        $('#copyApiTokenBtn').on('click', function() {
+            const value = $('#apiTokenValue').val();
+            if (!value) return;
+            navigator.clipboard.writeText(value).then(function() {
+                showAlert('Token copied to clipboard', 'success');
+            }).catch(function() {
+                $('#apiTokenValue').select();
+                document.execCommand('copy');
+                showAlert('Token copied to clipboard', 'success');
+            });
+        });
+
+        refreshTokenStatus();
     });
 </script>
 {% endblock %}

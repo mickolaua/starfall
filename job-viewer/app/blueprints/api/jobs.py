@@ -11,7 +11,6 @@ from flask import (
     send_file,
     send_from_directory,
 )
-from flask_login import login_required
 from fits_viewer import (
     discover_reg_files,
     fits_header_payload,
@@ -22,6 +21,7 @@ from fits_viewer import (
 
 from ...compat import url_for
 from ...constants import TEXT_PREVIEW_EXTENSIONS, TEXT_PREVIEW_MAX_BYTES
+from ...services.auth import api_login_required
 from ...services.jobs import (
     categorize_artifact,
     is_previewable_image,
@@ -36,7 +36,7 @@ api_jobs_bp = Blueprint("api_jobs", __name__, url_prefix="/api/jobs")
 
 
 @api_jobs_bp.route("/<job_id>/raw/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_raw(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)
@@ -44,7 +44,7 @@ def get_job_raw(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/regions/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_regions(job_id: str, filename: str):
     job = owned_job(job_id)
     if not filename.endswith(".reg"):
@@ -61,7 +61,7 @@ def get_job_regions(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/results", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_results(job_id: str):
     job = owned_job(job_id)
     job_directory = job_result_directory(job)
@@ -135,7 +135,7 @@ def get_job_results(job_id: str):
 
 
 @api_jobs_bp.route("/<job_id>/text/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_text_preview(job_id: str, filename: str):
     job = owned_job(job_id)
     suffix = Path(filename).suffix.lower()
@@ -174,7 +174,7 @@ def get_job_text_preview(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/results/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def download_job_result(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)
@@ -184,7 +184,7 @@ def download_job_result(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/preview/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def preview_job_result(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)
@@ -209,7 +209,7 @@ def preview_job_result(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/header/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_fits_header(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)
@@ -223,7 +223,7 @@ def get_job_fits_header(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/overlay/parse/<path:filename>", methods=["POST"])
-@login_required
+@api_login_required
 def parse_job_overlay(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)
@@ -260,7 +260,7 @@ def parse_job_overlay(job_id: str, filename: str):
 
 
 @api_jobs_bp.route("/<job_id>/overlay/<path:filename>", methods=["GET"])
-@login_required
+@api_login_required
 def get_job_overlay(job_id: str, filename: str):
     job = owned_job(job_id)
     artifact = resolve_job_artifact(job, filename)

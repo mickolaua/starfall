@@ -12,7 +12,7 @@ except ImportError:  # loaded as a nested package (e.g. job-viewer.app)
     from ..config import Config
 
 from .compat import install_template_url_for
-from .extensions import babel, bootstrap, db, login_manager
+from .extensions import babel, bootstrap, db, login_manager, migrate
 
 
 def create_app(config_object=Config):
@@ -36,26 +36,28 @@ def create_app(config_object=Config):
         )
 
     db.init_app(app)
+    migrate.init_app(app, db, directory=str(job_viewer_root / "migrations"))
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
     bootstrap.init_app(app)
     babel.init_app(app)
 
-    from .models import User  # noqa: F401 — register models with SQLAlchemy
+    from .models import Job, User  # noqa: F401 — register models with SQLAlchemy
+    from .services.auth import load_user_from_request
 
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
+
+    login_manager.request_loader(load_user_from_request)
 
     from .blueprints import register_blueprints
 
     register_blueprints(app)
     install_template_url_for(app)
 
+    # Tables for brand-new DBs; column evolution via Flask-Migrate (flask db upgrade).
     with app.app_context():
-        from .models.job import ensure_job_schema
-
         db.create_all()
-        ensure_job_schema()
 
     return app
