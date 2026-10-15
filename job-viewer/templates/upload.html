@@ -2,14 +2,6 @@
 
 {% block content %}
 <style>
-    .file-info {
-        margin-top: 10px;
-    }
-
-    .text-danger {
-        margin-top: 10px;
-    }
-
     .hidden {
         display: none;
     }
@@ -17,221 +9,230 @@
     .visible {
         display: contents;
     }
+
+    .file-picker-panel .file-info {
+        display: block;
+        min-height: 1.25rem;
+    }
 </style>
 
-<div class="container-fluid mt-5">
-    <h5 class="step-header mt-5"><strong>Select images</strong></h5>
-    <h5 id="headerMessageOnSumbitFiles"></h5>
-    <form class="row g-3 needs-validation" id="formLightFiles" novalidate>
-        <div class="col-md-2">
-            <label for="fileUpload" class="form-label">Choose light images with sources</label>
-            <div class="has-validation">
-                <input class="form-control" type="file" name="files[]" id="fileUpload" multiple required>
-                <small class="form-text text-muted">Upload your files (max {{ max_total_size / (1024*1024) }}
-                    MiB).</small>
-                <small class="form-text text-muted file-info" id="fileInfo"></small>
-                <small class="form-text text-danger" id="sizeWarning"></small>
-                <div class="invalid-feedback">
-                    Please choose light frames.
+<div class="container-xxl mt-4 mb-5">
+    <h5 class="step-header mb-3"><strong>1. Select images</strong></h5>
+    <p class="text-body-secondary mb-3" id="headerMessageOnSumbitFiles"></p>
+
+    <form class="needs-validation" id="formLightFiles" novalidate>
+        <div class="row g-3">
+            <div class="col-12 col-md-4">
+                <div class="card h-100 shadow-sm p-3 file-picker-panel">
+                    <label for="fileUpload" class="form-label fw-semibold">
+                        Light frames <span class="badge text-bg-primary">Required</span>
+                    </label>
+                    <div class="has-validation">
+                        <input class="form-control" type="file" name="files[]" id="fileUpload" multiple required
+                            data-info-id="lightsFileInfo" data-warning-id="lightsSizeWarning">
+                        <small class="form-text text-muted">Max {{ max_total_size / (1024*1024) }} MiB per selection.</small>
+                        <small class="form-text text-muted file-info" id="lightsFileInfo"></small>
+                        <small class="form-text text-danger" id="lightsSizeWarning"></small>
+                        <div class="invalid-feedback">Please choose at least one light frame.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <div class="card h-100 shadow-sm p-3 file-picker-panel">
+                    <label for="darksUpload" class="form-label fw-semibold">
+                        Dark frames <span class="text-body-secondary fw-normal">(optional)</span>
+                    </label>
+                    <div class="has-validation">
+                        <input class="form-control" type="file" name="darks[]" id="darksUpload" multiple
+                            data-info-id="darksFileInfo" data-warning-id="darksSizeWarning">
+                        <small class="form-text text-muted">Max {{ max_total_size / (1024*1024) }} MiB per selection.</small>
+                        <small class="form-text text-muted file-info" id="darksFileInfo"></small>
+                        <small class="form-text text-danger" id="darksSizeWarning"></small>
+                        <div class="invalid-feedback">Dark selection is too large.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <div class="card h-100 shadow-sm p-3 file-picker-panel">
+                    <label for="flatsUpload" class="form-label fw-semibold">
+                        Flat frames <span class="text-body-secondary fw-normal">(optional)</span>
+                    </label>
+                    <div class="has-validation">
+                        <input class="form-control" type="file" name="flats[]" id="flatsUpload" multiple
+                            data-info-id="flatsFileInfo" data-warning-id="flatsSizeWarning">
+                        <small class="form-text text-muted">Max {{ max_total_size / (1024*1024) }} MiB per selection.</small>
+                        <small class="form-text text-muted file-info" id="flatsFileInfo"></small>
+                        <small class="form-text text-danger" id="flatsSizeWarning"></small>
+                        <div class="invalid-feedback">Flat selection is too large.</div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-2">
-            <label for="darksUpload" class="form-label">Choose dark images</label>
-            <div class="has-validation">
-                <input class="form-control" type="file" name="darks[]" id="darksUpload" multiple>
-                <small class="form-text text-muted">Upload your files (max {{ max_total_size / (1024*1024) }}
-                    MiB).</small>
-                <small class="form-text text-muted file-info" id="fileInfo"></small>
-                <small class="form-text text-danger" id="sizeWarning"></small>
-                <div class="invalid-feedback">
-                    Please choose dark frames.
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-2">
-            <label for="flatsUpload" class="form-label">Choose flat images</label>
-            <div class="has-validation">
-                <input class="form-control" type="file" name="flats[]" id="flatsUpload" multiple>
-                <small class="form-text text-muted">Upload your files (max {{ max_total_size / (1024*1024) }}
-                    MiB).</small>
-                <small class="form-text text-muted file-info" id="fileInfo"></small>
-                <small class="form-text text-danger" id="sizeWarning"></small>
-                <div class="invalid-feedback">
-                    Please choose flat frames.
-                </div>
-            </div>
-        </div>
-
-        <div class="row row-cols-3 mt-4">
-            <div class="container-xxl">
-                <div class="btn-group" role="group" aria-label="">
-                    <button id="clearFileUpload" class="btn btn-outline-secondary">Clear</button>
-                    <button id="buttonValidateFiles" class="btn btn-outline-primary" type="submit">Validate</button>
-                    <button id="buttonDisplayJobParameters" class="btn btn-outline-primary disabled">Next</button>
-                </div>
-            </div>
+        <div class="d-flex justify-content-end gap-2 mt-3">
+            <button type="button" id="clearFileUpload" class="btn btn-outline-secondary">Clear</button>
+            <button type="button" id="buttonDisplayJobParameters" class="btn btn-primary">Next</button>
         </div>
     </form>
-</div>
 
+    <div id="hiddenJobParameters" style="display: none;">
+        <hr class="my-4">
+        <h5 class="step-header mb-3"><strong>2. Job parameters</strong></h5>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card h-100 shadow-sm p-3">
+                    <h6 class="fw-bold mb-3 text-primary">General Settings</h6>
 
-<div class="container-fluid" id="hiddenJobParameters" style="display: none;">
-    <hr class="my-4">
-    <h5 class="step-header"><strong>Set job parameters</strong></h5>
-    <div class="row g-4">
-        <div class="col-md-6">
-            <div class="card h-100 shadow-sm p-3">
-                <h6 class="fw-bold mb-3 text-primary">General Settings</h6>
+                    <div class="mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Optional label so you can recognize this job later. Does not affect processing."
+                        data-bs-placement="right">
+                        <label for="jobNameInput" class="form-label">Job name <span class="text-body-secondary">(optional)</span></label>
+                        <input type="text" class="form-control" id="jobNameInput" maxlength="200"
+                            placeholder="e.g. Mondy clear stack 2026-10-15">
+                    </div>
 
-                <div class="mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Optional label so you can recognize this job later. Does not affect processing."
-                    data-bs-placement="right">
-                    <label for="jobNameInput" class="form-label">Job name <span class="text-body-secondary">(optional)</span></label>
-                    <input type="text" class="form-control" id="jobNameInput" maxlength="200"
-                        placeholder="e.g. Mondy clear stack 2026-10-15">
-                </div>
+                    <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Choose a telescope preset from the list" data-bs-placement="right">
+                        <span class="input-group-text">Telescope</span>
+                        <select class="form-select" aria-label="selectTelescope" id="selectTelescope" required>
+                            <option value="" selected disabled>Select a telescope preset</option>
+                            {% for (tel_id, tel_name) in telescopes %}
+                            <option value="{{ tel_id }}">{{ tel_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Choose a telescope preset from the list" data-bs-placement="right">
-                    <span class="input-group-text">Telescope</span>
-                    <select class="form-select" aria-label="selectTelescope" id="selectTelescope">
-                        <option selected>Select a telescope preset</option>
-                        {% for (tel_id, tel_name) in telescopes %}
-                        <option value="{{ tel_id }}">{{ tel_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+                    <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Choose a stacking mode from the list. The reduced set of light images will be stacked in this mode."
+                        data-bs-placement="right">
+                        <span class="input-group-text">Stack mode</span>
+                        <select class="form-select" aria-label="selectStackMode" id="selectStackMode" required>
+                            <option value="" selected disabled>Select a stack mode</option>
+                            {% for (stack_mode_id, stack_mode_name) in stack_modes %}
+                            <option value="{{ stack_mode_id }}">{{ stack_mode_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Choose a stacking mode from the list. The reduced set of light images will be stacked in this mode."
-                    data-bs-placement="right">
-                    <span class="input-group-text ">Stack mode</span>
-                    <select class="form-select" aria-label="selectStackMode" id="selectStackMode">
-                        <option selected>Select a stack mode</option>
-                        {% for (stack_mode_id, stack_mode_name) in stack_modes %}
-                        <option value="{{ stack_mode_id }}">{{ stack_mode_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="form-check mb-2">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" value="" id="defaultCheck1" onchange="toggleGroupFramesInput()">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="" id="defaultCheck1"
+                            onchange="toggleGroupFramesInput()">
                         <label class="form-check-label" for="defaultCheck1">
                             Group files by N frames then stack them
                         </label>
                     </div>
-                </div>
 
-                <div class="ms-4 mb-3 hidden" id="groupFramesContainer" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Choose how many frames will be in a single stacking group"
-                    data-bs-placement="right"
-                    style="margin-top: -0.5rem;"
-                >
-                    <div class="input-group">
-                        <span class="input-group-text">Group size (N)</span>
-                        <input type="text" class="form-control" id="groupFramesValue" value="10" min="1">
+                    <div class="ms-4 mb-3 hidden" id="groupFramesContainer" data-bs-toggle="popover"
+                        title="Field description"
+                        data-bs-content="Choose how many frames will be in a single stacking group"
+                        data-bs-placement="right" style="margin-top: -0.5rem;">
+                        <div class="input-group">
+                            <span class="input-group-text">Group size (N)</span>
+                            <input type="number" class="form-control" id="groupFramesValue" value="10" min="1" step="1">
+                            <div class="invalid-feedback">Enter a positive integer group size.</div>
+                        </div>
+                    </div>
+
+                    <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Select the optical filter from the list. Depending on the filter used, STARFALL will decide which filter expression to use with selected photometric catalog. This is required for the correct photometric calibration."
+                        data-bs-placement="right">
+                        <span class="input-group-text">Optical filter</span>
+                        <select class="form-select" aria-label="selectOpticalFilter" id="selectOpticalFilter" required>
+                            <option value="" selected disabled>Select a filter</option>
+                            {% for (filter_id, filter_name) in optical_filters %}
+                            <option value="{{ filter_id }}">{{ filter_name }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
                 </div>
+            </div>
 
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Select the optical filter from the list. Depending on the filter used, STARFALL will decide which filter expression to use with selected photometric catalog. This is required for the correct photometric calibration."
-                    data-bs-placement="right">
-                    <span class="input-group-text">Optical filter</span>
-                    <select class="form-select" aria-label="selectOpticalFilter" id="selectOpticalFilter">
-                        <option selected>Select a filter</option>
-                        {% for (filter_id, filter_name) in optical_filters %}
-                        <option value="{{ filter_id }}">{{ filter_name }}</option>
-                        {% endfor %}
-                    </select>
+            <div class="col-md-6">
+                <div class="card h-100 shadow-sm p-3">
+                    <h6 class="fw-bold mb-3 text-primary">Astrometry &amp; Transients</h6>
+
+                    <div class="mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Specify the celestial coordinates of the field center in J2000 epoch. The coordinates will be used for astrometric calibration as an initial information."
+                        data-bs-placement="right">
+                        <label class="form-label">Field Center (J2000)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">RA / Dec</span>
+                            <input type="text" aria-label="Field center RA" class="form-control"
+                                placeholder="RA (deg)" id="raFieldInput">
+                            <input type="text" aria-label="Field center Dec" class="form-control"
+                                placeholder="Dec (deg)" id="decFieldInput">
+                        </div>
+                        <div id="ra-error-message" class="invalid-feedback d-block"></div>
+                        <div id="dec-error-message" class="invalid-feedback d-block"></div>
+                    </div>
+
+                    <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Select a catalog for astrometric calibration."
+                        data-bs-placement="right">
+                        <span class="input-group-text">Astrometric catalog</span>
+                        <select class="form-select" aria-label="selectAstrometricCatalog" id="selectAstrometricCatalog"
+                            required>
+                            <option value="" selected disabled>Select a catalog</option>
+                            {% for (catalog_id, catalog_name) in astrometric_catalogs %}
+                            <option value="{{ catalog_id }}">{{ catalog_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="input-group mb-3">
+                        <span class="input-group-text">Photometric catalog</span>
+                        <select class="form-select" aria-label="selectPhotometricCatalog" id="selectPhotometricCatalog"
+                            required>
+                            <option value="" selected disabled>Select a catalog</option>
+                            {% for (catalog_id, catalog_name) in photometric_catalogs %}
+                            <option value="{{ catalog_id }}">{{ catalog_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Transient Search Circle <span
+                                class="text-body-secondary">(optional)</span></label>
+                        <div class="input-group">
+                            <input type="text" aria-label="Transient circle RA" class="form-control"
+                                id="raLocalizationCircleInput" placeholder="RA">
+                            <input type="text" aria-label="Transient circle Dec" class="form-control"
+                                id="decLocalizationCircleInput" placeholder="Dec">
+                            <input type="text" aria-label="Transient circle radius" class="form-control"
+                                id="radiusLocalizationCircleInput" placeholder="Radius (arcsec)">
+                        </div>
+                        <div class="invalid-feedback d-block" id="transientCircleFeedback"></div>
+                    </div>
+
+                    <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
+                        data-bs-content="Advanced configuration parameters for Apex (optional)."
+                        data-bs-placement="right">
+                        <span class="input-group-text">Apex Configuration</span>
+                        <input type="text" class="form-control" id="apexConfInput"
+                            placeholder="e.g. param1=val1,param2=val2">
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-6">
-            <div class="card h-100 shadow-sm p-3">
-                <h6 class="fw-bold mb-3 text-primary">Astrometry & Transients</h6>
-
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Specify the celestial coordinates of the field center in J2000 epoch. The coordinates will be used for astrometric calibration as an initial information."
-                    data-bs-placement="right">
-                    <span class="input-group-text">Field Center (J2000)</span>
-                    <input type="text" aria-label="raFieldInputLabel" class="form-control"
-                        placeholder="RA (deg)" id="raFieldInput">
-                    <input type="text" aria-label="decFieldInput" class="form-control"
-                        placeholder="Dec (deg)" id="decFieldInput">
-                    <div id="ra-error-message" class="error"></div>
-                </div>
-
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Select a catalog for astrometric calibration."
-                    data-bs-placement="right">
-                    <span class="input-group-text ">Astrometric catalog</span>
-                    <select class="form-select" aria-label="selectPhotometricCatalog" id="selectAstrometricCatalog">
-                        <option selected>Select a catalog</option>
-                        {% for (catalog_id, catalog_name) in astrometric_catalogs %}
-                            <option value="{{ catalog_id }}">{{ catalog_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="input-group mb-3">
-                    <span class="input-group-text ">Photometric catalog</span>
-                    <select class="form-select" aria-label="selectPhotometricCatalog" id="selectPhotometricCatalog">
-                        <option selected>Select a catalog</option>
-                        {% for (catalog_id, catalog_name) in photometric_catalogs %}
-                            <option value="{{ catalog_id }}">{{ catalog_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="input-group mb-3">
-                    <span class="input-group-text">Transient Search Circle</span>
-                    <input type="text" aria-label="raLocalizationCircleInput" class="form-control" id="raLocalizationCircleInput"
-                        placeholder="RA">
-                    <input type="text" aria-label="decLocalizationCircleInput" class="form-control" id="decLocalizationCircleInput"
-                        placeholder="Dec">
-                    <input type="text" aria-label="radiusLocalizationCircleInput" class="form-control" id="radiusLocalizationCircleInput"
-                        placeholder="Radius (arcsec)">
-                </div>
-
-                <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
-                    data-bs-content="Advanced configuration parameters for Apex (optional)."
-                    data-bs-placement="right">
-                    <span class="input-group-text">Apex Configuration</span>
-                    <input type="text" class="form-control" id="apexConfInput"
-                        placeholder="e.g. param1=val1,param2=val2">
-                </div>
+        <div class="mt-4">
+            <p class="text-center mb-2" id="pSubmitStatus"></p>
+            <div class="d-flex justify-content-center">
+                <button type="button" class="btn btn-primary" id="buttonSubmitJob" disabled>Submit</button>
             </div>
         </div>
     </div>
-
-    <div class="row row-cols-3 mt-4">
-        <div class="col">
-        </div>
-        <div class="col">
-            <p class="text-center text-danger" id="pSubmitStatus"></p>
-            <div class="d-flex justify-content-center gap-2">
-                <button class="btn btn-outline-primary w-auto" onclick="validateJobParameters()">Validate Parameters</button>
-                <button class="btn btn-primary w-auto disabled" id="buttonSubmitJob" onclick="processingProceeder()">Submit</button>
-            </div>
-        </div>
-        <div class="col">
-        </div>
-    </div>
-
-    <hr class="my-4">
-</div>
 </div>
 
 {% endblock %}
 
 {% block scripts %}
+<script type="text/javascript">
+    const MAX_TOTAL_SIZE = {{ max_total_size }};
+    const NUM_PATTERN = /^[+-]?\d+(\.\d+)?$/;
 
-<script>
     function toggleGroupFramesInput() {
         const isChecked = document.getElementById('defaultCheck1').checked;
         const container = document.getElementById('groupFramesContainer');
@@ -241,288 +242,390 @@
         } else {
             container.classList.add('hidden');
             container.classList.remove('visible');
+            markField(document.getElementById('groupFramesValue'), null);
         }
     }
 
     function formatFileSize(size) {
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        if (size === 0) return '0 Byte';
-        const i = parseInt(Math.floor(Math.log(size) / Math.log(1024)));
-        return Math.round(size / Math.pow(1024, i), 2) + ' ' + sizes[i];
+        if (size === 0) return '0 Bytes';
+        const i = Math.min(Math.floor(Math.log(size) / Math.log(1024)), sizes.length - 1);
+        return Math.round(size / Math.pow(1024, i)) + ' ' + sizes[i];
     }
-</script>
 
-<!-- Field validators -->
-<script>
-    document.getElementById('raFieldInput').addEventListener('input', function () {
-        const raInput = this;
-        const ra = raInput.value;
-        const raPattern = /^[+-]?\d+(\.\d+)?$/
-        const errorMessage = document.getElementById('ra-error-message');
+    function markField(el, ok) {
+        if (!el) return;
+        el.classList.remove('is-valid', 'is-invalid');
+        if (ok === true) el.classList.add('is-valid');
+        if (ok === false) el.classList.add('is-invalid');
+    }
 
-        if (!raPattern.test(ra)) {
-            raInput.classList.add('is-invalid');
-            raInput.classList.remove('is-valid');
-        } else {
-            raInput.classList.remove('is-invalid');
-            raInput.classList.add('is-valid');
+    function updateFileInfo(input) {
+        const info = document.getElementById(input.dataset.infoId);
+        const warning = document.getElementById(input.dataset.warningId);
+        const files = input.files;
+        if (!info || !warning) return;
+
+        if (!files || files.length === 0) {
+            info.textContent = '';
+            warning.textContent = '';
+            return;
         }
-    })
 
-    document.getElementById('decFieldInput').addEventListener('input', function () {
-        const decInput = this;
-        const dec = decInput.value;
-        const decPattern = /^[+-]?\d+(\.\d+)?$/
-        const errorMessage = document.getElementById('dec-error-message');
-        var isInvalid = !decPattern.test(dec);
-        if (!isInvalid) {
-            const decFloat = parseFloat(dec);
-            if (decFloat < -90 || decFloat > 90) {
-                isInvalid = true;
+        let sizeTotal = 0;
+        Array.from(files).forEach((f) => { sizeTotal += f.size; });
+        info.textContent = files.length + ' file' + (files.length === 1 ? '' : 's') +
+            ' · ' + formatFileSize(sizeTotal);
+        warning.textContent = sizeTotal > MAX_TOTAL_SIZE
+            ? 'Selection exceeds the maximum size.'
+            : '';
+    }
+
+    function validateFiles(showErrors) {
+        const inputs = [
+            document.getElementById('fileUpload'),
+            document.getElementById('darksUpload'),
+            document.getElementById('flatsUpload'),
+        ];
+        let allOk = true;
+
+        inputs.forEach((input) => {
+            const files = input.files;
+            let sizeTotal = 0;
+            Array.from(files || []).forEach((f) => { sizeTotal += f.size; });
+
+            const missingRequired = input.required && (!files || files.length === 0);
+            const tooLarge = sizeTotal > MAX_TOTAL_SIZE;
+            const ok = !missingRequired && !tooLarge;
+            if (!ok) allOk = false;
+
+            if (showErrors) {
+                markField(input, ok);
+                updateFileInfo(input);
+            }
+        });
+
+        return allOk;
+    }
+
+    function validateCoordinates(ra, dec) {
+        const raOk = NUM_PATTERN.test(ra) && parseFloat(ra) >= 0 && parseFloat(ra) < 360;
+        const decOk = NUM_PATTERN.test(dec) && parseFloat(dec) >= -90 && parseFloat(dec) <= 90;
+        return { raOk, decOk };
+    }
+
+    function validateSelect(selectEl) {
+        return !!(selectEl && selectEl.value);
+    }
+
+    function validateTransientCircle(showErrors) {
+        const raEl = document.getElementById('raLocalizationCircleInput');
+        const decEl = document.getElementById('decLocalizationCircleInput');
+        const radiusEl = document.getElementById('radiusLocalizationCircleInput');
+        const feedback = document.getElementById('transientCircleFeedback');
+        const ra = (raEl.value || '').trim();
+        const dec = (decEl.value || '').trim();
+        const radius = (radiusEl.value || '').trim();
+        const anyFilled = !!(ra || dec || radius);
+
+        if (!anyFilled) {
+            if (showErrors) {
+                markField(raEl, null);
+                markField(decEl, null);
+                markField(radiusEl, null);
+                if (feedback) feedback.textContent = '';
+            }
+            return true;
+        }
+
+        const coords = validateCoordinates(ra, dec);
+        const radiusOk = NUM_PATTERN.test(radius) && parseFloat(radius) > 0;
+        const ok = coords.raOk && coords.decOk && radiusOk;
+
+        if (showErrors) {
+            markField(raEl, coords.raOk);
+            markField(decEl, coords.decOk);
+            markField(radiusEl, radiusOk);
+            if (feedback) {
+                feedback.textContent = ok
+                    ? ''
+                    : 'Fill RA, Dec, and a positive radius (arcsec), or leave all three empty.';
             }
         }
-
-        if (isInvalid) {
-            decInput.classList.add('is-invalid');
-            decInput.classList.remove('is-valid');
-        } else {
-            decInput.classList.remove('is-invalid');
-            decInput.classList.add('is-valid');
-        }
-    })
-
-    function checkFileInputs() {
-        var ok = false;
-        document.querySelectorAll('.form-control').forEach(element => {
-
-            if (element.type === "file") {
-                const fileUpload = element;
-                const files = fileUpload.files;
-
-                var isInvalid = element.required && (files.length === 0);
-
-                if (files) {
-                    var sizeTotal = 0;
-                    Array.from(files).forEach((el, idx, arr) => { sizeTotal += el.size });
-                    const isInvalidBySize = sizeTotal > parseFloat("{{ max_size_total }}");
-                    isInvalid |= isInvalidBySize;
-                    if (isInvalidBySize) {
-                        const invalidFeedback = element.closest('.invalid-feedback');
-                    }
-                }
-
-                if (isInvalid) {
-                    fileUpload.classList.add('is-invalid');
-                    fileUpload.classList.remove('is-valid');
-                } else {
-                    fileUpload.classList.remove('is-invalid');
-                    fileUpload.classList.add('is-valid');
-                    ok = true;
-                }
-            }
-        })
-
         return ok;
     }
 
-    document.getElementById('buttonValidateFiles').addEventListener("click", function (e) {
-        e.preventDefault();
-        const ok = checkFileInputs();
-        if (ok) {
-            const frozenButton = document.getElementById('buttonDisplayJobParameters');
-            frozenButton.classList.remove("disabled");
-        }
-    })
-
-    document.getElementById('clearFileUpload').addEventListener('click', function () {
-        document.querySelectorAll('.form-control').forEach(element => {
-            if (element.type === "file") {
-                element.value = "";
-            }
-        })
-    })
-
-</script>
-
-<!-- Logic for page forms (e.g. manages file uploads) -->
-<script type="text/javascript">
-
-    function validateJobParameters() {
+    function validateJobParameters(showErrors) {
         let isValid = true;
-        const submitStatus = document.getElementById("pSubmitStatus");
-        submitStatus.innerHTML = '';
-        submitStatus.classList.remove('text-danger');
 
-        // 1. General Settings Validation
-        const telescope = $('#selectTelescope').val();
-        const stackMode = $('#selectStackMode').val();
-        const filter = $('#selectOpticalFilter').val();
+        const telescope = document.getElementById('selectTelescope');
+        const stackMode = document.getElementById('selectStackMode');
+        const filter = document.getElementById('selectOpticalFilter');
+        const astCatalog = document.getElementById('selectAstrometricCatalog');
+        const photCatalog = document.getElementById('selectPhotometricCatalog');
+        const raEl = document.getElementById('raFieldInput');
+        const decEl = document.getElementById('decFieldInput');
+        const groupCheck = document.getElementById('defaultCheck1');
+        const groupValue = document.getElementById('groupFramesValue');
+        const raMsg = document.getElementById('ra-error-message');
+        const decMsg = document.getElementById('dec-error-message');
 
-        if (telescope === 'Select a telescope preset' || !telescope) {
-            isValid = false;
-            console.log('Telescope not selected');
-        }
-        if (stackMode === 'Select a stack mode' || !stackMode) {
-            isValid = false;
-            console.log('Stack mode not selected');
-        }
-        if (filter === 'Select a filter' || !filter) {
-            isValid = false;
-            console.log('Filter not selected');
-        }
+        const telescopeOk = validateSelect(telescope);
+        const stackOk = validateSelect(stackMode);
+        const filterOk = validateSelect(filter);
+        const astOk = validateSelect(astCatalog);
+        const photOk = validateSelect(photCatalog);
 
-        // 2. Astrometry & Transients Validation
-        const ra = $('#raFieldInput').val();
-        const dec = $('#decFieldInput').val();
-        const astCatalog = $('#selectAstrometricCatalog').val();
+        const ra = (raEl.value || '').trim();
+        const dec = (decEl.value || '').trim();
+        const coords = validateCoordinates(ra, dec);
 
-        if (!ra || !dec) {
-            isValid = false;
-            console.log('Field center RA or Dec missing');
-        }
-        if (astCatalog === 'Select a catalog' || !astCatalog) {
-            isValid = false;
-            console.log('Astrometric catalog not selected');
+        let groupOk = true;
+        if (groupCheck.checked) {
+            const n = parseInt(groupValue.value, 10);
+            groupOk = Number.isInteger(n) && n >= 1 && String(n) === String(groupValue.value).trim();
         }
 
-        // Validate RA/Dec patterns (reuse logic from validators)
-        const raPattern = /^[+-]?\d+(\.\d+)?$/;
-        const decPattern = /^[+-]?\d+(\.\d+)?$/;
-        if (!raPattern.test(ra) || !decPattern.test(dec)) {
+        const transientOk = validateTransientCircle(showErrors);
+
+        if (!telescopeOk || !stackOk || !filterOk || !astOk || !photOk ||
+            !coords.raOk || !coords.decOk || !groupOk || !transientOk) {
             isValid = false;
         }
 
-        if (isValid) {
-            $('#buttonSubmitJob').removeClass('disabled');
-            submitStatus.innerHTML = '<strong class="text-success">Parameters validated successfully!</strong>';
+        if (showErrors) {
+            markField(telescope, telescopeOk);
+            markField(stackMode, stackOk);
+            markField(filter, filterOk);
+            markField(astCatalog, astOk);
+            markField(photCatalog, photOk);
+            markField(raEl, coords.raOk);
+            markField(decEl, coords.decOk);
+            if (groupCheck.checked) {
+                markField(groupValue, groupOk);
+            } else {
+                markField(groupValue, null);
+            }
+
+            if (raMsg) {
+                raMsg.textContent = coords.raOk ? '' : 'RA must be a number in [0, 360).';
+            }
+            if (decMsg) {
+                decMsg.textContent = coords.decOk ? '' : 'Dec must be a number in [-90, 90].';
+            }
+        }
+
+        return isValid;
+    }
+
+    function setParametersVisible(visible) {
+        const content = document.getElementById('hiddenJobParameters');
+        const submitBtn = document.getElementById('buttonSubmitJob');
+        content.style.display = visible ? 'block' : 'none';
+        if (visible) {
+            submitBtn.removeAttribute('disabled');
         } else {
-            $('#buttonSubmitJob').addClass('disabled');
-            submitStatus.classList.add('text-danger');
-            submitStatus.innerHTML = '<strong class="text-danger">Please fill in all required parameters correctly.</strong>';
+            submitBtn.setAttribute('disabled', 'disabled');
+            document.getElementById('pSubmitStatus').innerHTML = '';
         }
     }
 
-    function processingProceeder(e) {
-        if ($('#fileUpload').prop("files").length > 0) {
-            $('#headerMessageOnSumbitFiles').text();
+    function clearFileSelection() {
+        ['fileUpload', 'darksUpload', 'flatsUpload'].forEach((id) => {
+            const el = document.getElementById(id);
+            el.value = '';
+            markField(el, null);
+            updateFileInfo(el);
+        });
+        document.getElementById('headerMessageOnSumbitFiles').textContent = '';
+        setParametersVisible(false);
+    }
 
-            const lights = $('#fileUpload').prop("files");
-            const darks = $('#darksUpload').prop("files");
-            const flats = $('#flatsUpload').prop("files");
-            var data = { "lights": lights, "darks": darks, "flats": flats };
+    document.getElementById('clearFileUpload').addEventListener('click', function (e) {
+        e.preventDefault();
+        clearFileSelection();
+    });
 
-            const formData = new FormData();
+    document.getElementById('buttonDisplayJobParameters').addEventListener('click', function (e) {
+        e.preventDefault();
+        const header = document.getElementById('headerMessageOnSumbitFiles');
+        if (!validateFiles(true)) {
+            header.textContent = 'Fix the file selection before continuing.';
+            header.classList.add('text-danger');
+            setParametersVisible(false);
+            return;
+        }
+        header.textContent = '';
+        header.classList.remove('text-danger');
+        setParametersVisible(true);
+    });
 
-            for (var i = 0; i < lights.length; i++) {
-                formData.append("lights", lights[i]);
+    ['fileUpload', 'darksUpload', 'flatsUpload'].forEach((id) => {
+        const input = document.getElementById(id);
+        input.addEventListener('change', function () {
+            updateFileInfo(this);
+            validateFiles(true);
+            if (document.getElementById('hiddenJobParameters').style.display === 'block' &&
+                !validateFiles(false)) {
+                setParametersVisible(false);
             }
+        });
+    });
 
-            for (var i = 0; i < darks.length; i++) {
-                formData.append("darks", darks[i]);
+    document.getElementById('raFieldInput').addEventListener('input', function () {
+        const coords = validateCoordinates(this.value.trim(), document.getElementById('decFieldInput').value.trim());
+        markField(this, this.value.trim() ? coords.raOk : null);
+        const raMsg = document.getElementById('ra-error-message');
+        if (raMsg) {
+            raMsg.textContent = (!this.value.trim() || coords.raOk) ? '' : 'RA must be a number in [0, 360).';
+        }
+    });
+
+    document.getElementById('decFieldInput').addEventListener('input', function () {
+        const coords = validateCoordinates(document.getElementById('raFieldInput').value.trim(), this.value.trim());
+        markField(this, this.value.trim() ? coords.decOk : null);
+        const decMsg = document.getElementById('dec-error-message');
+        if (decMsg) {
+            decMsg.textContent = (!this.value.trim() || coords.decOk) ? '' : 'Dec must be a number in [-90, 90].';
+        }
+    });
+
+    ['selectTelescope', 'selectStackMode', 'selectOpticalFilter',
+        'selectAstrometricCatalog', 'selectPhotometricCatalog'].forEach((id) => {
+            document.getElementById(id).addEventListener('change', function () {
+                markField(this, validateSelect(this));
+            });
+        });
+
+    document.getElementById('groupFramesValue').addEventListener('input', function () {
+        if (document.getElementById('defaultCheck1').checked) {
+            const n = parseInt(this.value, 10);
+            const ok = Number.isInteger(n) && n >= 1 && String(n) === String(this.value).trim();
+            markField(this, ok);
+        }
+    });
+
+    ['raLocalizationCircleInput', 'decLocalizationCircleInput', 'radiusLocalizationCircleInput'].forEach((id) => {
+        document.getElementById(id).addEventListener('input', function () {
+            validateTransientCircle(true);
+        });
+    });
+
+    function processingProceeder() {
+        const submitStatus = document.getElementById('pSubmitStatus');
+        submitStatus.classList.remove('text-danger', 'text-success');
+        submitStatus.innerHTML = '';
+
+        const filesOk = validateFiles(true);
+        const paramsOk = validateJobParameters(true);
+        if (!filesOk || !paramsOk) {
+            submitStatus.classList.add('text-danger');
+            submitStatus.innerHTML = '<strong>Please fix the highlighted fields before submitting.</strong>';
+            if (!filesOk) {
+                document.getElementById('headerMessageOnSumbitFiles').textContent =
+                    'Fix the file selection before submitting.';
+                document.getElementById('headerMessageOnSumbitFiles').classList.add('text-danger');
             }
+            return;
+        }
 
-            for (var i = 0; i < flats.length; i++) {
-                formData.append("flats", flats[i]);
-            }
+        const lights = $('#fileUpload').prop('files');
+        const darks = $('#darksUpload').prop('files');
+        const flats = $('#flatsUpload').prop('files');
+        const formData = new FormData();
 
-            const submitStatusParagrpaph = document.getElementById("pSubmitStatus");
+        for (let i = 0; i < lights.length; i++) formData.append('lights', lights[i]);
+        for (let i = 0; i < darks.length; i++) formData.append('darks', darks[i]);
+        for (let i = 0; i < flats.length; i++) formData.append('flats', flats[i]);
 
-            $.ajax({
-                url: "{{ url_for('upload') }}",
-                type: 'POST',
-                data: formData,
-                contentType: false,
-                processData: false,
-                success: function (response) {
-                    if (response.status === 'failed') {
-                        $('#uploadedLights').html(`<strong>Failed to upload images</strong>`);
-                    } else {
-                        lightFilenames = response.light_filenames;
-                        darkFilenames = response.dark_filenames;
-                        flatFilenames = response.flat_filenames;
-                        if (lightFilenames) {
-                            $.ajax({
-                                url: "{{ url_for('post_submit') }}",
-                                type: 'POST',
-                                contentType: 'application/json',
-                                data: JSON.stringify({
-                                    "subid": response.subid, "working_dir": response.working_dir,
-                                    "light_filenames": lightFilenames,
-                                    "dark_filenames": darkFilenames,
-                                    "flat_filenames": flatFilenames,
-                                    "name": ($('#jobNameInput').val() || '').trim() || null,
-                                    "telescope": $('#selectTelescope').val(),
-                                    "stack_mode": $('#selectStackMode').val(),
-                                    "group_frames": $('#defaultCheck1').is(':checked'),
-                                    "group_frames_value": $('#groupFramesValue').val(),
-                                    "ra_field": $('#raFieldInput').val(),
-                                    "dec_field": $('#decFieldInput').val(),
-                                    "filter": $('#selectOpticalFilter').val(),
-                                    "astrometric_catalog": $('#selectAstrometricCatalog').val(),
-                                    "photometric_catalog": $('#selectPhotometricCatalog').val(),
-                                    "transient_circle": {
-                                        "ra": $('#raLocalizationCircleInput').val(),
-                                        "dec": $('#decLocalizationCircleInput').val(),
-                                        "radius": $('#radiusLocalizationCircleInput').val()
-                                    },
-                                    "apex_conf": $('#apexConfInput').val()
-                                    }),
-                                success: function (response) {
-                                    window.location.href = "/submit/" + response.subid;
-                                    if (submitStatusParagrpaph.classList.contains('text-danger')) {
-                                        submitStatusParagrpaph.classList.remove('text-danger');
-                                        submitStatusParagrpaph.innerHTML = '';
-                                    }
-                                },
-                                error: function (jqXHR, textStatus, errorThrown) {
-                                    console.log('Error: ' + jqXHR);
-                                    
-                                    submitStatusParagrpaph.classList.add('text-danger');
-                                    
-                                    // Optional: Parse if the server returns JSON
-                                    try {
-                                        var jsonResponse = JSON.parse(jqXHR.responseText);
-                                        console.log('Parsed Error:', jsonResponse);
-                                        submitStatusParagrpaph.innerHTML = "<strong>Submission failed!</strong>\nReason: " + JSON.stringify(jsonResponse.reason);
-                                    } catch (e) {
-                                        console.log('Response is not valid JSON');
-                                        submitStatusParagrpaph.innerHTML = "<strong>Submission failed!</strong>\nProcessing service is not available. Please try again later.";
-                                    }
+        const submitBtn = document.getElementById('buttonSubmitJob');
+        submitBtn.setAttribute('disabled', 'disabled');
+        submitStatus.innerHTML = 'Uploading…';
 
-                                    
-                                }
-                            })
+        $.ajax({
+            url: "{{ url_for('upload') }}",
+            type: 'POST',
+            data: formData,
+            contentType: false,
+            processData: false,
+            success: function (response) {
+                if (response.status === 'failed') {
+                    submitBtn.removeAttribute('disabled');
+                    submitStatus.classList.add('text-danger');
+                    submitStatus.innerHTML = '<strong>Failed to upload images.</strong> ' +
+                        (response.reason || '');
+                    return;
+                }
+
+                const lightFilenames = response.light_filenames;
+                if (!lightFilenames || !lightFilenames.length) {
+                    submitBtn.removeAttribute('disabled');
+                    submitStatus.classList.add('text-danger');
+                    submitStatus.innerHTML = '<strong>Failed to upload images.</strong>';
+                    return;
+                }
+
+                $.ajax({
+                    url: "{{ url_for('post_submit') }}",
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        "subid": response.subid,
+                        "working_dir": response.working_dir,
+                        "light_filenames": lightFilenames,
+                        "dark_filenames": response.dark_filenames,
+                        "flat_filenames": response.flat_filenames,
+                        "name": ($('#jobNameInput').val() || '').trim() || null,
+                        "telescope": $('#selectTelescope').val(),
+                        "stack_mode": $('#selectStackMode').val(),
+                        "group_frames": $('#defaultCheck1').is(':checked'),
+                        "group_frames_value": $('#groupFramesValue').val(),
+                        "ra_field": $('#raFieldInput').val(),
+                        "dec_field": $('#decFieldInput').val(),
+                        "filter": $('#selectOpticalFilter').val(),
+                        "astrometric_catalog": $('#selectAstrometricCatalog').val(),
+                        "photometric_catalog": $('#selectPhotometricCatalog').val(),
+                        "transient_circle": {
+                            "ra": $('#raLocalizationCircleInput').val(),
+                            "dec": $('#decLocalizationCircleInput').val(),
+                            "radius": $('#radiusLocalizationCircleInput').val()
+                        },
+                        "apex_conf": $('#apexConfInput').val()
+                    }),
+                    success: function (submitResponse) {
+                        window.location.href = "/submit/" + submitResponse.subid;
+                    },
+                    error: function (jqXHR) {
+                        submitBtn.removeAttribute('disabled');
+                        submitStatus.classList.add('text-danger');
+                        try {
+                            var jsonResponse = JSON.parse(jqXHR.responseText);
+                            submitStatus.innerHTML = "<strong>Submission failed!</strong> Reason: " +
+                                (jsonResponse.reason || JSON.stringify(jsonResponse));
+                        } catch (e) {
+                            submitStatus.innerHTML =
+                                "<strong>Submission failed!</strong> Processing service is not available. Please try again later.";
                         }
                     }
+                });
+            },
+            error: function (jqXHR) {
+                submitBtn.removeAttribute('disabled');
+                submitStatus.classList.add('text-danger');
+                try {
+                    var jsonResponse = JSON.parse(jqXHR.responseText);
+                    submitStatus.innerHTML = "<strong>Upload failed!</strong> " +
+                        (jsonResponse.reason || '');
+                } catch (e) {
+                    submitStatus.innerHTML = "<strong>Upload failed!</strong> Please try again.";
                 }
-            });
-        } else {
-            $('#headerMessageOnSumbitFiles').text("No light images chosen. Choose at-least a single image then continue again.")
-        }
+            }
+        });
     }
 
-    $(document).ready(function () {
-        var taskHeaders = $(".step-header");
-        Array.from(taskHeaders).forEach((element, index, array) => {
-            element.innerHTML = `<strong>${index + 1}.<strong> ` + element.innerHTML;
-        });
-    })
-
-    $(document).ready(function () {
-        const c = $("#hiddenJobParameters")[0];
-        console.log(c.style.display);
-    })
-
-    $("#buttonDisplayJobParameters").on('click', function (e) {
+    document.getElementById('buttonSubmitJob').addEventListener('click', function (e) {
         e.preventDefault();
-        const content = $("#hiddenJobParameters")[0];
-        if (content.style.display === 'none' || content.style.display === '') {
-            content.style.display = 'block';
-        } else {
-            content.style.display = 'none';
-        }
-    })
-
+        processingProceeder();
+    });
 </script>
-
 {% endblock %}

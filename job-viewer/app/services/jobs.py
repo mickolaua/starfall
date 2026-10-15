@@ -1,3 +1,4 @@
+import math
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -5,6 +6,7 @@ from uuid import uuid4
 import requests
 from flask import abort, current_app
 from flask_login import current_user
+from sqlalchemy import or_
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -24,6 +26,9 @@ from .prefect import (
     resolve_prefect_deployment_id,
     standardize_status,
 )
+
+_DEFAULT_PER_PAGE = 25
+_MAX_PER_PAGE = 100
 
 
 def _iso(dt) -> str | None:
@@ -343,16 +348,44 @@ def create_prefect_job(user: User, data: dict) -> tuple[dict, int]:
     )
 
 
-def list_user_jobs(user: User, query: str = "") -> list[dict]:
-    jobs = list(user.jobs)
+def list_user_jobs(
+    user: User,
+    query: str = "",
+    *,
+    page: int = 1,
+    per_page: int = _DEFAULT_PER_PAGE,
+) -> dict:
+    """Return a newest-first page of the user's jobs plus pagination metadata."""
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(per_page)
+    except (TypeError, ValueError):
+        per_page = _DEFAULT_PER_PAGE
+
+    page = max(page, 1)
+    per_page = min(max(per_page, 1), _MAX_PER_PAGE)
+
+    base = Job.query.filter_by(user_id=user.id)
     if query:
-        q = query.lower()
-        jobs = [
-            job
-            for job in jobs
-            if q in job.job_id.lower()
-            or (job.name and q in job.name.lower())
-        ]
+        pattern = f"%{query}%"
+        base = base.filter(
+            or_(Job.job_id.ilike(pattern), Job.name.ilike(pattern))
+        )
+
+    total = base.count()
+    pages = math.ceil(total / per_page) if total else 0
+    if pages and page > pages:
+        page = pages
+
+    jobs = (
+        base.order_by(Job.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
 
     for job in jobs:
         if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
@@ -363,17 +396,23 @@ def list_user_jobs(user: User, query: str = "") -> list[dict]:
                     "Failed to sync job %s: %s", job.job_id, exc
                 )
 
-    return [
-        {
-            "subid": job.job_id,
-            "name": job.name,
-            "status": job.status,
-            "stack_mode": job.stack_mode,
-            "started_at": _iso(job.started_at),
-            "finished_at": _iso(job.finished_at),
-        }
-        for job in jobs
-    ]
+    return {
+        "submissions": [
+            {
+                "subid": job.job_id,
+                "name": job.name,
+                "status": job.status,
+                "stack_mode": job.stack_mode,
+                "started_at": _iso(job.started_at),
+                "finished_at": _iso(job.finished_at),
+            }
+            for job in jobs
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": pages,
+    }
 
 
 def get_job_status_payload(user: User, job_id: str) -> tuple[dict, int]:

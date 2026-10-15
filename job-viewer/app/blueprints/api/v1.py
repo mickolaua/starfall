@@ -73,8 +73,13 @@ def create_job():
 @api_login_required
 def list_jobs():
     query = request.args.get("q", "").strip()
-    jobs = list_user_jobs(current_user, query)
-    return jsonify({"status": "successful", "submissions": jobs})
+    result = list_user_jobs(
+        current_user,
+        query,
+        page=request.args.get("page", 1),
+        per_page=request.args.get("per_page", 25),
+    )
+    return jsonify({"status": "successful", **result})
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["GET"])

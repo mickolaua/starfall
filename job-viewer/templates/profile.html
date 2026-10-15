@@ -95,6 +95,13 @@
                         <i class="bi bi-search fs-2 text-body-secondary"></i>
                         <p class="text-body-secondary mt-2">No submissions found matching your search.</p>
                     </div>
+                    <div id="submissionsPagination" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 d-none">
+                        <span class="text-body-secondary small" id="submissionsPageInfo"></span>
+                        <div class="btn-group" role="group" aria-label="Submissions pagination">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="submissionsPrevBtn" disabled>Prev</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="submissionsNextBtn" disabled>Next</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -221,15 +228,45 @@
 
         // --- Submissions Logic ---
 
-        function fetchSubmissions(query = '') {
+        const PER_PAGE = 25;
+        let currentPage = 1;
+        let totalPages = 0;
+
+        function updatePaginationControls(page, pages, total) {
+            const $pager = $('#submissionsPagination');
+            const $info = $('#submissionsPageInfo');
+            const $prev = $('#submissionsPrevBtn');
+            const $next = $('#submissionsNextBtn');
+
+            currentPage = page;
+            totalPages = pages;
+
+            if (total === 0) {
+                $pager.addClass('d-none');
+                return;
+            }
+
+            $pager.removeClass('d-none');
+            $info.text(`Page ${page} of ${pages} (${total} total)`);
+            $prev.prop('disabled', page <= 1);
+            $next.prop('disabled', page >= pages);
+        }
+
+        function fetchSubmissions(query = '', page = 1) {
             const $tbody = $('#userSubmissionsTable tbody');
             const $noResults = $('#noResults');
 
             $tbody.empty();
             $noResults.addClass('d-none');
 
+            const params = new URLSearchParams({
+                q: query,
+                page: String(page),
+                per_page: String(PER_PAGE),
+            });
+
             $.ajax({
-                url: `${resultsUrl}?q=${encodeURIComponent(query)}`,
+                url: `${resultsUrl}?${params.toString()}`,
                 type: 'GET',
                 success: function(response) {
                     if (response.status !== 'successful') {
@@ -237,7 +274,13 @@
                         return;
                     }
 
-                    const submissions = response.submissions;
+                    const submissions = response.submissions || [];
+                    const total = response.total || 0;
+                    const respPage = response.page || page;
+                    const pages = response.pages || 0;
+
+                    updatePaginationControls(respPage, pages, total);
+
                     if (submissions.length === 0) {
                         $noResults.removeClass('d-none');
                         return;
@@ -267,8 +310,8 @@
         }
 
         $('#searchBtn').on('click', function() {
-            const query = $('#submissionSearch').val();
-            fetchSubmissions(query);
+            currentPage = 1;
+            fetchSubmissions($('#submissionSearch').val(), 1);
         });
 
         $('#submissionSearch').on('keypress', function(e) {
@@ -279,11 +322,24 @@
 
         $('#clearSearchBtn').on('click', function() {
             $('#submissionSearch').val('');
-            fetchSubmissions('');
+            currentPage = 1;
+            fetchSubmissions('', 1);
+        });
+
+        $('#submissionsPrevBtn').on('click', function() {
+            if (currentPage > 1) {
+                fetchSubmissions($('#submissionSearch').val(), currentPage - 1);
+            }
+        });
+
+        $('#submissionsNextBtn').on('click', function() {
+            if (currentPage < totalPages) {
+                fetchSubmissions($('#submissionSearch').val(), currentPage + 1);
+            }
         });
 
         // Initial load
-        fetchSubmissions();
+        fetchSubmissions('', 1);
 
         // --- Account Logic ---
 

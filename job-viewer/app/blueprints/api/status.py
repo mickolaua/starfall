@@ -100,5 +100,10 @@ def get_user_submitions_ajax(user_id: int):
         return jsonify({"status": "failed"})
 
     query_str = request.args.get("q", "").strip()
-    jobs = list_user_jobs(user, query_str)
-    return jsonify({"status": "successful", "submissions": jobs})
+    result = list_user_jobs(
+        user,
+        query_str,
+        page=request.args.get("page", 1),
+        per_page=request.args.get("per_page", 25),
+    )
+    return jsonify({"status": "successful", **result})
