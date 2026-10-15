@@ -2,6 +2,9 @@
 
 Flask UI for submitting image-processing jobs and viewing results.
 
+Versioning and releases (Conventional Commits, tags like `job-viewer-vX.Y.Z`,
+Release Please PRs) are documented in [docs/VERSIONING.md](../docs/VERSIONING.md).
+
 ## Entrypoints
 
 Two apps share the same `config.py`, templates, static files, and database.

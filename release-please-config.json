@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "python",
+  "include-component-in-tag": true,
+  "separate-pull-requests": true,
+  "packages": {
+    "job-viewer": {
+      "package-name": "job-viewer",
+      "component": "job-viewer",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "orchestrator": {
+      "package-name": "orchestrator",
+      "component": "orchestrator",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
