@@ -38,11 +38,19 @@ if not APEX_PYTHON_PATH:
     raise ValueError("Apex python path not found")
 
 
-def _catalog_id_to_options(astrometric_catalog: str, photometric_catalog: str) -> str:
+def _catalog_id_to_options(astrometric_catalog: str, photometric_catalog: str, band: str = "Rc") -> str:
     options = set()
     if astrometric_catalog == "usnob":
         options.add("catalog.usno_reader.usnob_astrometric_priority=99")
         options.add("catalog.usno_reader.usnob_allow_remote=1")
+        expr = f"{band}=R2"
+        if band == "Bj":
+            expr = f"{band}=B2"
+        elif band == "Vj":
+            expr = f"{band}=0.4*B2+0.6*R2"
+        elif band == "Ic":
+            expr = f"{band}=I"
+        options.add(f"catalog.usno_reader.usnob_inst_mag={expr}")
     elif astrometric_catalog == "ps1":
         options.add("catalog.ps1_reader.astrometric_priority=99")
         options.add("catalog.ps1_reader.allow_remote=1")
@@ -101,6 +109,7 @@ def prepare(
     telescope: str | None = None,
     ra_field: Any = None,
     dec_field: Any = None,
+    band: str = "Rc"
 ) -> None:
     """
     Telescope-specific preparation steps.
@@ -112,39 +121,46 @@ def prepare(
     py = shlex.quote(APEX_PYTHON_PATH)
 
     telescope = telescope or ""
-    if telescope != "mondy_azt33ik":
+    if telescope in ["abao_as32"]:
         if not ra_field or not dec_field:
             raise ValueError(f"ra_field and dec_field are required for {telescope}")
 
-        if telescope == "abao_as32":
-            hedit_fields = f"FOC_LEN=2141;FOCALLEN=2141;"
-        else:
-            hedit_fields = ""
+    if telescope == "abao_as32":
+        hedit_fields = 'FOC_LEN=2141;FOCALLEN=2141;PIXHEIGH=0.0135;PIXWIDTH=0.0135'
+    else:
+        hedit_fields = ""
 
-        if hedit_fields:
-            ShellOperation(
-                commands=[
-                    f"{py} -m apex.scripts.apex_hedit "
-                    f"{_shell_join(light_filenames)} {_shell_join(dark_filenames)} {_shell_join(flat_filenames)} action=edit fields={hedit_fields}"
-                ],
-                working_dir=str(wd),
-                env=_apex_env(telescope),
-            ).run()
+    # It is necessary to update filter in the header
+    # so APEX can properly map catalog magnitude columns to the filter
+    hedit_fields += f';filter="{band}";'
 
-        ra = str(ra_field)
-        dec = str(dec_field)
-
-        commands = [
-            f"{py} -m apex.scripts.wcs_hedit {_shell_join(light_filenames)} pixsize_unit=mm "
-            f"object_ra={shlex.quote(ra)} object_dec={shlex.quote(dec)}"
-        ]
-
-
+    if hedit_fields:
         ShellOperation(
-            commands=commands,
+            commands=[
+                f"{py} -m apex.scripts.apex_hedit "
+                f"{_shell_join(light_filenames)} {_shell_join(dark_filenames)} {_shell_join(flat_filenames)} action=edit fields={shlex.quote(hedit_fields)}"
+            ],
             working_dir=str(wd),
             env=_apex_env(telescope),
         ).run()
+
+    ra = str(ra_field)
+    dec = str(dec_field)
+
+    wcs_hedit_opts = ""
+    if telescope == "abao_as32":
+        wcs_hedit_opts = "xpixsize=0.0135 ypixsize=0.0135 focalen=2141"
+
+    commands = [
+        f"{py} -m apex.scripts.wcs_hedit {_shell_join(light_filenames)} pixsize_unit=mm "
+        f"object_ra={shlex.quote(ra)} object_dec={shlex.quote(dec)} {wcs_hedit_opts}"
+    ]
+
+    ShellOperation(
+        commands=commands,
+        working_dir=str(wd),
+        env=_apex_env(telescope),
+    ).run()
 
 
 @task(name="calibrate_images")
@@ -287,7 +303,7 @@ def auto_pipeline(
     photometric_catalog: str | None = None
     
 ) -> None:
-    """WCS header edit + apex_auto (photometry / identification)."""
+    """photometry / identification)."""
     logger = get_run_logger()
 
     wd = Path(working_dir)
@@ -303,11 +319,12 @@ def auto_pipeline(
 
     commands.append(
         f"{py} -m apex.scripts.apex_auto {light_arg} "
-        f"io.fits_fmt.bitpix=FLOAT {config.APEX_CONF_OVERRIDES_AUTO.get(telescope, '')}"
+        f"io.fits_fmt.bitpix=FLOAT "
         f"extraction.noise_mode=local multistage=1 stages=3  "
         f"calibration.background.default_estimator=median "
         f"calibration.params.sat_level=9999999999999 overwrite_frame=1 "
-        f"{_catalog_id_to_options(astrometric_catalog, photometric_catalog)}"
+        f"{_catalog_id_to_options(astrometric_catalog, photometric_catalog)} "
+        f"{config.APEX_CONF_OVERRIDES_AUTO.get(telescope, '')}"
     )
 
     logger.debug("auto_pipeline commands: %r", commands)
