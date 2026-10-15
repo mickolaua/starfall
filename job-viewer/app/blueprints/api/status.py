@@ -1,11 +1,11 @@
-from flask import Blueprint, abort, current_app, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
 
 from ...extensions import db
 from ...models import Job, User
 from ...models.job import apply_job_status
 from ...services.auth import api_login_required
-from ...services.jobs import create_prefect_job, sync_job_status_from_prefect
+from ...services.jobs import create_prefect_job, list_user_jobs
 from ...services.prefect import (
     extract_state_type,
     get_prefect_flow_run_by_idempotency_key,
@@ -100,29 +100,5 @@ def get_user_submitions_ajax(user_id: int):
         return jsonify({"status": "failed"})
 
     query_str = request.args.get("q", "").strip()
-
-    all_jobs = user.jobs
-
-    if query_str:
-        filtered_jobs = [
-            job for job in all_jobs if query_str.lower() in job.job_id.lower()
-        ]
-    else:
-        filtered_jobs = all_jobs
-
-    running_jobs = [
-        job
-        for job in filtered_jobs
-        if job.status in ["RUNNING", "QUEUED", "running", "queued"]
-    ]
-    for job in running_jobs:
-        try:
-            sync_job_status_from_prefect(job)
-        except Exception as e:
-            current_app.logger.error(
-                "Failed to proactively sync job %s: %s", job.job_id, e
-            )
-
-    jobs = [{"subid": job.job_id, "status": job.status} for job in filtered_jobs]
-
+    jobs = list_user_jobs(user, query_str)
     return jsonify({"status": "successful", "submissions": jobs})

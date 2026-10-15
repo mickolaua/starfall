@@ -86,6 +86,14 @@
             <div class="card h-100 shadow-sm p-3">
                 <h6 class="fw-bold mb-3 text-primary">General Settings</h6>
 
+                <div class="mb-3" data-bs-toggle="popover" title="Field description"
+                    data-bs-content="Optional label so you can recognize this job later. Does not affect processing."
+                    data-bs-placement="right">
+                    <label for="jobNameInput" class="form-label">Job name <span class="text-body-secondary">(optional)</span></label>
+                    <input type="text" class="form-control" id="jobNameInput" maxlength="200"
+                        placeholder="e.g. Mondy clear stack 2026-10-15">
+                </div>
+
                 <div class="input-group mb-3" data-bs-toggle="popover" title="Field description"
                     data-bs-content="Choose a telescope preset from the list" data-bs-placement="right">
                     <span class="input-group-text">Telescope</span>
@@ -442,6 +450,7 @@
                                     "light_filenames": lightFilenames,
                                     "dark_filenames": darkFilenames,
                                     "flat_filenames": flatFilenames,
+                                    "name": ($('#jobNameInput').val() || '').trim() || null,
                                     "telescope": $('#selectTelescope').val(),
                                     "stack_mode": $('#selectStackMode').val(),
                                     "group_frames": $('#defaultCheck1').is(':checked'),

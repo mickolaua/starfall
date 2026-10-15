@@ -57,7 +57,7 @@
                             <label for="submissionSearch" class="form-label fw-semibold">Search Submissions</label>
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                <input type="text" id="submissionSearch" class="form-control" placeholder="Enter Submission ID...">
+                                <input type="text" id="submissionSearch" class="form-control" placeholder="Search by name or submission ID…">
                                 <button class="btn btn-primary" id="searchBtn">Search</button>
                                 <button class="btn btn-outline-secondary" id="clearSearchBtn">Clear</button>
                             </div>
@@ -68,6 +68,7 @@
                         <table class="table table-hover align-middle" id="userSubmissionsTable">
                             <thead class="table-light">
                                 <tr>
+                                    <th scope="col">Name</th>
                                     <th scope="col">Submission ID</th>
                                     <th scope="col">Status</th>
                                     <th scope="col" class="text-end">Action</th>
@@ -232,9 +233,13 @@
 
                     submissions.forEach(job => {
                         const statusClass = `status-badge-${job.status.toUpperCase()}`;
+                        const displayName = job.name
+                            ? $('<div>').text(job.name).html()
+                            : '<span class="text-body-secondary">—</span>';
                         const row = `
                             <tr>
-                                <td class="fw-semibold">${job.subid}</td>
+                                <td class="fw-semibold">${displayName}</td>
+                                <td><code class="small">${job.subid}</code></td>
                                 <td><span class="badge ${statusClass}">${job.status.toUpperCase()}</span></td>
                                 <td class="text-end">
                                     <a href="/submit/${job.subid}" class="btn btn-sm btn-outline-primary">View</a>

@@ -215,8 +215,8 @@ def upload():
 @pages_bp.route("/submit/<subid>", methods=["GET"])
 @login_required
 def get_submit(subid: str):
-    owned_job(subid)
-    return render_template("submission.html", subid=subid)
+    job = owned_job(subid)
+    return render_template("submission.html", subid=subid, job_name=job.name)
 
 
 @pages_bp.route("/view/<job_id>/<path:filename>", methods=["GET"])

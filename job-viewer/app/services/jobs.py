@@ -31,6 +31,21 @@ def _iso(dt) -> str | None:
         return None
     return dt.isoformat()
 
+
+_JOB_NAME_MAX_LEN = 200
+
+
+def normalize_job_name(value) -> str | None:
+    """Optional display name: strip, truncate to 200; empty → None."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    name = value.strip()
+    if not name:
+        return None
+    return name[:_JOB_NAME_MAX_LEN]
+
 _UPLOAD_EXTENSIONS = frozenset(
     {"fit", "fits", "fts", "zip", "7z", "gz", "tar", "rar"}
 )
@@ -308,6 +323,7 @@ def create_prefect_job(user: User, data: dict) -> tuple[dict, int]:
         job = Job(
             user_id=user.id,
             job_id=data["subid"],
+            name=normalize_job_name(data.get("name")),
             status=standardize_status(state_type or "PENDING"),
             stack_mode=data.get("stack_mode"),
         )
@@ -315,7 +331,11 @@ def create_prefect_job(user: User, data: dict) -> tuple[dict, int]:
         apply_job_status(job, state_type or "PENDING")
         db.session.add(job)
         db.session.commit()
-        return {"status": "successful", "subid": data["subid"]}, 200
+        return {
+            "status": "successful",
+            "subid": data["subid"],
+            "name": job.name,
+        }, 200
 
     return (
         {"status": "failed", "subid": data.get("subid"), "reason": json_resp},
@@ -327,7 +347,12 @@ def list_user_jobs(user: User, query: str = "") -> list[dict]:
     jobs = list(user.jobs)
     if query:
         q = query.lower()
-        jobs = [job for job in jobs if q in job.job_id.lower()]
+        jobs = [
+            job
+            for job in jobs
+            if q in job.job_id.lower()
+            or (job.name and q in job.name.lower())
+        ]
 
     for job in jobs:
         if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
@@ -341,6 +366,7 @@ def list_user_jobs(user: User, query: str = "") -> list[dict]:
     return [
         {
             "subid": job.job_id,
+            "name": job.name,
             "status": job.status,
             "stack_mode": job.stack_mode,
             "started_at": _iso(job.started_at),
@@ -364,9 +390,23 @@ def get_job_status_payload(user: User, job_id: str) -> tuple[dict, int]:
     return {
         "status": "successful",
         "subid": job.job_id,
+        "name": job.name,
         "job_status": job.status,
         "stack_mode": job.stack_mode,
         "started_at": _iso(job.started_at),
         "finished_at": _iso(job.finished_at),
         "parameters": job.get_job_parameters(),
+    }, 200
+
+
+def rename_job(user: User, job_id: str, name) -> tuple[dict, int]:
+    job = Job.query.filter_by(job_id=job_id, user_id=user.id).one_or_none()
+    if job is None:
+        return {"status": "failed", "reason": "job not found"}, 404
+    job.name = normalize_job_name(name)
+    db.session.commit()
+    return {
+        "status": "successful",
+        "subid": job.job_id,
+        "name": job.name,
     }, 200

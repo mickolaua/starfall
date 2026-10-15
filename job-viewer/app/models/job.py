@@ -12,6 +12,7 @@ class Job(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(200), nullable=True)
     status = db.Column(db.String(50), nullable=False)
     stack_mode = db.Column(db.String(50), nullable=True)
     job_parameters = db.Column(db.Text, nullable=True)

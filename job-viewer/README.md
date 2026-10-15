@@ -77,12 +77,19 @@ curl -s -X POST "$BASE/api/v1/jobs" \
     "light_filenames": ["..."],
     "dark_filenames": [],
     "flat_filenames": [],
+    "name": "optional friendly label",
     "telescope": "mondy_azt33ik",
     "stack_mode": "average",
     "filter": "clear",
     "astrometric_catalog": "gaia_edr3",
     "photometric_catalog": "gaia_edr3"
   }'
+
+# Optional: rename later
+curl -s -X PATCH "$BASE/api/v1/jobs/<subid>" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "new label"}'
 
 # 3) Poll status (job_status, started_at, finished_at, parameters)
 curl -s "$BASE/api/v1/jobs/<subid>" -H "Authorization: Bearer $TOKEN"

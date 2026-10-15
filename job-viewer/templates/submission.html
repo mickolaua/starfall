@@ -62,8 +62,15 @@
     <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3 mb-4">
         <div>
             <p class="text-uppercase text-body-secondary small fw-semibold mb-1">Image processing</p>
-            <h1 class="h2 mb-2">Job results</h1>
-            <p class="text-body-secondary mb-0">Job <code>{{ subid }}</code></p>
+            <h1 class="h2 mb-2" id="jobDisplayName">{{ job_name or 'Job results' }}</h1>
+            <p class="text-body-secondary mb-2">Job <code>{{ subid }}</code></p>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <input type="text" class="form-control form-control-sm" id="renameJobInput"
+                    maxlength="200" style="max-width: 20rem;"
+                    value="{{ job_name or '' }}" placeholder="Optional job name">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="renameJobBtn">Rename</button>
+                <span class="small text-body-secondary" id="renameJobStatus" aria-live="polite"></span>
+            </div>
         </div>
         <a class="btn btn-outline-secondary" href="{{ url_for('user_page') }}">
             <i class="bi bi-arrow-left" aria-hidden="true"></i> My jobs
@@ -145,6 +152,36 @@
 <script>
     const statusUrl = {{ url_for('get_dag_run_details_ajax', dag_id='process_image', run_id=subid) | tojson }};
     const resultsUrl = {{ url_for('get_job_results', job_id=subid) | tojson }};
+    const renameUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};
+    const jobDisplayName = document.getElementById('jobDisplayName');
+    const renameJobInput = document.getElementById('renameJobInput');
+    const renameJobBtn = document.getElementById('renameJobBtn');
+    const renameJobStatus = document.getElementById('renameJobStatus');
+
+    if (renameJobBtn) {
+        renameJobBtn.addEventListener('click', async function () {
+            const raw = (renameJobInput.value || '').trim();
+            renameJobStatus.textContent = 'Saving…';
+            try {
+                const resp = await fetch(renameUrl, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: raw || null }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.status !== 'successful') {
+                    throw new Error(data.reason || 'Rename failed');
+                }
+                jobDisplayName.textContent = data.name || 'Job results';
+                renameJobInput.value = data.name || '';
+                renameJobStatus.textContent = 'Saved';
+                setTimeout(() => { renameJobStatus.textContent = ''; }, 2000);
+            } catch (err) {
+                renameJobStatus.textContent = err.message || 'Rename failed';
+            }
+        });
+    }
+
     const stateBadge = document.getElementById('jobState');
     const jobMessage = document.getElementById('jobMessage');
     const jobProgress = document.getElementById('jobProgress');

@@ -10,6 +10,7 @@ from ...services.jobs import (
     create_prefect_job,
     get_job_status_payload,
     list_user_jobs,
+    rename_job,
     store_uploaded_frames,
 )
 
@@ -80,4 +81,14 @@ def list_jobs():
 @api_login_required
 def get_job(job_id: str):
     body, status = get_job_status_payload(current_user, job_id)
+    return jsonify(body), status
+
+
+@api_v1_bp.route("/jobs/<job_id>", methods=["PATCH"])
+@api_login_required
+def patch_job(job_id: str):
+    data = request.get_json(silent=True) or {}
+    if "name" not in data:
+        return jsonify({"status": "failed", "reason": "name field required"}), 400
+    body, status = rename_job(current_user, job_id, data.get("name"))
     return jsonify(body), status
