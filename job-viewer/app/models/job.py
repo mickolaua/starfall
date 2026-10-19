@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from ..extensions import db
 
 _TERMINAL_STATUSES = frozenset({"SUCCESS", "FAILED"})
-_ACTIVE_STATUSES = frozenset({"RUNNING", "QUEUED"})
+_ACTIVE_STATUSES = frozenset({"RUNNING", "QUEUED", "PENDING"})
 
 
 class Job(db.Model):
@@ -18,6 +18,8 @@ class Job(db.Model):
     job_parameters = db.Column(db.Text, nullable=True)
     started_at = db.Column(db.DateTime(timezone=True), nullable=True)
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    prefect_idempotency_key = db.Column(db.String(120), nullable=True)
+    prefect_flow_run_id = db.Column(db.String(64), nullable=True)
 
     user = db.relationship("User", back_populates="jobs")
     user_id = db.Column(
@@ -53,11 +55,21 @@ def apply_job_status(job: Job, new_status: str, *, now: datetime | None = None) 
     """
     from ..services.prefect import standardize_status
 
+    previous = (job.status or "").upper()
     status = standardize_status(new_status)
-    job.status = status
     ts = now or datetime.now(timezone.utc)
 
-    if status in _ACTIVE_STATUSES and job.started_at is None:
-        job.started_at = ts
+    was_active = previous in _ACTIVE_STATUSES
+    is_active = status in _ACTIVE_STATUSES
+
+    job.status = status
+
+    if is_active:
+        if not was_active:
+            # Re-run / first activation: fresh start window, clear prior finish.
+            job.started_at = ts
+            job.finished_at = None
+        elif job.started_at is None:
+            job.started_at = ts
     if status in _TERMINAL_STATUSES and job.finished_at is None:
         job.finished_at = ts

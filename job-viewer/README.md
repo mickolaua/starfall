@@ -47,6 +47,8 @@ Do not run both apps in the same process. Point Prefect callbacks at whichever a
 | `/api/jobs/...` | Job artifacts (results, preview, …) | Same dual auth |
 | `/api/internal/...`, `/api/jobs/update/...` | Prefect/workers | Shared `JOBVIEWER_CALLBACK_TOKEN` only |
 
+Interactive OpenAPI (Swagger UI) for `/api/v1`: **[/api/docs](/api/docs)** — machine-readable spec at [`/api/openapi.yaml`](/api/openapi.yaml).
+
 Create or rotate a user token from **Profile → Account Settings → API Token**, or:
 
 ```bash

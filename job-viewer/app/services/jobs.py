@@ -1,5 +1,7 @@
 import math
 import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +21,10 @@ from ..extensions import db
 from ..models import Job, User
 from ..models.job import apply_job_status
 from .prefect import (
+    cancel_prefect_flow_run,
     extract_state_type,
+    get_latest_prefect_flow_run_for_job,
+    get_prefect_flow_run_by_id,
     get_prefect_flow_run_by_idempotency_key,
     prefect_headers,
     prefect_url,
@@ -58,8 +63,17 @@ _UPLOAD_EXTENSIONS = frozenset(
 
 def owned_job(job_id: str) -> Job:
     job = Job.query.filter_by(job_id=job_id, user_id=current_user.id).one_or_none()
-    print(job)
     if job is None:
+        abort(404)
+    return job
+
+
+def accessible_job(job_id: str) -> Job:
+    """Owner or admin may access the job."""
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if job is None:
+        abort(404)
+    if job.user_id != current_user.id and not current_user.is_admin():
         abort(404)
     return job
 
@@ -153,7 +167,7 @@ def validate_submit_paths(
     data: dict,
     user: User | None = None,
 ) -> tuple[str, list[str], list[str], list[str]] | tuple[None, str]:
-    """Ensure working_dir and file paths stay under RESULT_FOLDER/<user_id>/<subid>."""
+    """Ensure working_dir is the job folder; frame paths may be anywhere under the owner's user root."""
     subid = data.get("subid") or ""
     if not subid or "/" in subid or "\\" in subid or ".." in subid:
         return None, "invalid job id"
@@ -179,7 +193,9 @@ def validate_submit_paths(
                 path = Path(item).resolve()
             except (TypeError, OSError):
                 return None
-            if not path.is_relative_to(working_dir):
+            if path.is_symlink() or not path.is_file():
+                return None
+            if not path.is_relative_to(user_root):
                 return None
             resolved.append(str(path))
         return resolved
@@ -188,15 +204,36 @@ def validate_submit_paths(
     darks = _check_list("dark_filenames")
     flats = _check_list("flat_filenames")
     if lights is None or darks is None or flats is None:
-        return None, "one or more file paths are outside the job folder"
+        return None, "one or more file paths are outside your result folder"
+    if not lights:
+        return None, "no light images"
     return str(working_dir), lights, darks, flats
 
 
 def sync_job_status_from_prefect(job: Job) -> None:
-    flow_run = get_prefect_flow_run_by_idempotency_key(job.job_id)
-    if flow_run:
-        apply_job_status(job, extract_state_type(flow_run.get("state")))
-        db.session.commit()
+    """Refresh Job.status from the current Prefect flow run when one exists."""
+    flow_run = None
+    if job.prefect_flow_run_id:
+        flow_run = get_prefect_flow_run_by_id(job.prefect_flow_run_id)
+    if flow_run is None and job.prefect_idempotency_key:
+        flow_run = get_prefect_flow_run_by_idempotency_key(job.prefect_idempotency_key)
+    if flow_run is None:
+        flow_run = get_latest_prefect_flow_run_for_job(job.job_id)
+    if flow_run is None:
+        flow_run = get_prefect_flow_run_by_idempotency_key(job.job_id)
+    if not flow_run:
+        return
+
+    apply_job_status(job, extract_state_type(flow_run.get("state")))
+    run_id = flow_run.get("id")
+    if run_id:
+        job.prefect_flow_run_id = run_id
+    idem = flow_run.get("idempotency_key")
+    if idem:
+        job.prefect_idempotency_key = idem
+    elif not job.prefect_idempotency_key:
+        job.prefect_idempotency_key = job.job_id
+    db.session.commit()
 
 
 def _store_file_list(file_list: list[FileStorage], out_dir: str) -> list[str]:
@@ -244,6 +281,185 @@ def store_uploaded_frames(
         "light_filenames": light_filenames,
         "dark_filenames": _store_file_list(darks or [], dark_dir),
         "flat_filenames": _store_file_list(flats or [], flat_dir),
+    }
+
+
+def _role_hint_for_relative(relative_name: str) -> str:
+    lower = relative_name.lower().replace("\\", "/")
+    if lower.startswith("lights/") or lower.startswith("light/"):
+        return "light"
+    if lower.startswith("darks/") or lower.startswith("dark/"):
+        return "dark"
+    if lower.startswith("flats/") or lower.startswith("flat/"):
+        return "flat"
+    if is_stacked_product(relative_name) or is_calibrated_image(relative_name):
+        return "product"
+    return "other"
+
+
+def list_reusable_files(job: Job) -> dict:
+    job_directory = job_result_directory(job)
+    if not job_directory.is_dir():
+        return {"files": []}
+
+    files = []
+    for artifact in job_directory.rglob("*"):
+        if artifact.is_symlink() or not artifact.is_file():
+            continue
+        resolved = artifact.resolve()
+        if not resolved.is_relative_to(job_directory):
+            continue
+        ext = artifact.suffix.lower().lstrip(".")
+        if ext not in _UPLOAD_EXTENSIONS:
+            continue
+        relative = artifact.relative_to(job_directory).as_posix()
+        files.append(
+            {
+                "path": relative,
+                "name": artifact.name,
+                "role_hint": _role_hint_for_relative(relative),
+                "size": artifact.stat().st_size,
+            }
+        )
+    files.sort(key=lambda item: item["path"].lower())
+    return {"files": files}
+
+
+def _hardlink_or_copy(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
+
+
+def _unique_dest(dest_dir: Path, filename: str) -> Path:
+    candidate = dest_dir / filename
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem
+    suffix = candidate.suffix
+    n = 1
+    while True:
+        candidate = dest_dir / f"{stem}_{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def create_job_shell(user: User) -> dict:
+    """Create empty job dirs for reference-mode submit."""
+    job_id = uuid4().hex
+    outdir = Path(current_app.config["RESULT_FOLDER"]) / str(user.id) / job_id
+    for sub in ("lights", "darks", "flats"):
+        (outdir / sub).mkdir(parents=True, exist_ok=True)
+    return {
+        "status": "successful",
+        "working_dir": str(outdir.resolve()),
+        "subid": job_id,
+        "light_filenames": [],
+        "dark_filenames": [],
+        "flat_filenames": [],
+    }
+
+
+def attach_reused_frames(
+    user: User,
+    items: list[dict],
+    *,
+    mode: str = "copy",
+    delete_source: bool = False,
+) -> dict | tuple[None, str]:
+    """
+    Build a new job from prior-job files.
+    mode=copy: hardlink/copy into new job role dirs.
+    mode=reference: create shell + return abs source paths (same owner only).
+    """
+    if not items:
+        return None, "no files selected"
+    mode = (mode or "copy").lower().strip()
+    if mode not in {"copy", "reference"}:
+        return None, "invalid mode"
+
+    role_lists: dict[str, list[str]] = {"light": [], "dark": [], "flat": []}
+    pending_deletes: list[Path] = []
+
+    if mode == "reference":
+        shell = create_job_shell(user)
+        working_dir = shell["working_dir"]
+        job_id = shell["subid"]
+    else:
+        job_id = uuid4().hex
+        working_dir = str(
+            (Path(current_app.config["RESULT_FOLDER"]) / str(user.id) / job_id).resolve()
+        )
+        for sub in ("lights", "darks", "flats"):
+            Path(working_dir, sub).mkdir(parents=True, exist_ok=True)
+
+    role_dir = {
+        "light": Path(working_dir) / "lights",
+        "dark": Path(working_dir) / "darks",
+        "flat": Path(working_dir) / "flats",
+    }
+
+    for raw in items:
+        from_job_id = (raw.get("from_job_id") or "").strip()
+        relative_path = (raw.get("relative_path") or "").strip().replace("\\", "/")
+        role = (raw.get("role") or "").strip().lower()
+        if role not in role_lists:
+            return None, f"invalid role: {role}"
+        if not from_job_id or not relative_path or ".." in relative_path.split("/"):
+            return None, "invalid reuse item"
+
+        source_job = Job.query.filter_by(job_id=from_job_id).one_or_none()
+        if source_job is None:
+            return None, f"source job not found: {from_job_id}"
+        if source_job.user_id != user.id and not current_user.is_admin():
+            return None, "not allowed to reuse that job"
+        if mode == "reference" and source_job.user_id != user.id:
+            return None, "reference mode only allowed for your own jobs"
+
+        source_root = job_result_directory(source_job)
+        src = (source_root / relative_path).resolve()
+        if src.is_symlink() or not src.is_file() or not src.is_relative_to(source_root):
+            return None, f"invalid source file: {relative_path}"
+
+        ext = src.suffix.lower().lstrip(".")
+        if ext not in _UPLOAD_EXTENSIONS:
+            return None, f"unsupported file type: {src.name}"
+
+        if mode == "copy":
+            dest = _unique_dest(role_dir[role], secure_filename(src.name) or src.name)
+            _hardlink_or_copy(src, dest)
+            role_lists[role].append(str(dest.resolve()))
+            if delete_source:
+                pending_deletes.append(src)
+        else:
+            role_lists[role].append(str(src))
+
+    if not role_lists["light"]:
+        return None, "no light images"
+
+    if delete_source and mode == "copy":
+        result_root = Path(current_app.config["RESULT_FOLDER"]).resolve()
+        for src in pending_deletes:
+            try:
+                if src.is_file() and src.is_relative_to(result_root):
+                    src.unlink()
+                    current_app.logger.info("Deleted reuse source file %s", src)
+            except OSError as exc:
+                current_app.logger.error("Failed to delete source %s: %s", src, exc)
+
+    return {
+        "status": "successful",
+        "working_dir": working_dir,
+        "subid": job_id,
+        "light_filenames": role_lists["light"],
+        "dark_filenames": role_lists["dark"],
+        "flat_filenames": role_lists["flat"],
+        "mode": mode,
     }
 
 
@@ -331,6 +547,8 @@ def create_prefect_job(user: User, data: dict) -> tuple[dict, int]:
             name=normalize_job_name(data.get("name")),
             status=standardize_status(state_type or "PENDING"),
             stack_mode=data.get("stack_mode"),
+            prefect_idempotency_key=data["subid"],
+            prefect_flow_run_id=json_resp.get("id"),
         )
         job.set_job_parameters(parameters)
         apply_job_status(job, state_type or "PENDING")
@@ -387,8 +605,11 @@ def list_user_jobs(
         .all()
     )
 
+    _list_sync = frozenset(
+        {"RUNNING", "QUEUED", "PENDING", "running", "queued", "pending"}
+    )
     for job in jobs:
-        if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
+        if job.status in _list_sync or job.finished_at is None:
             try:
                 sync_job_status_from_prefect(job)
             except Exception as exc:
@@ -416,15 +637,14 @@ def list_user_jobs(
 
 
 def get_job_status_payload(user: User, job_id: str) -> tuple[dict, int]:
-    job = Job.query.filter_by(job_id=job_id, user_id=user.id).one_or_none()
-    if job is None:
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if job is None or (job.user_id != user.id and not user.is_admin()):
         return {"status": "failed", "reason": "job not found"}, 404
 
-    if job.status in {"RUNNING", "QUEUED", "running", "queued"}:
-        try:
-            sync_job_status_from_prefect(job)
-        except Exception as exc:
-            current_app.logger.error("Failed to sync job %s: %s", job.job_id, exc)
+    try:
+        sync_job_status_from_prefect(job)
+    except Exception as exc:
+        current_app.logger.error("Failed to sync job %s: %s", job.job_id, exc)
 
     return {
         "status": "successful",
@@ -435,12 +655,16 @@ def get_job_status_payload(user: User, job_id: str) -> tuple[dict, int]:
         "started_at": _iso(job.started_at),
         "finished_at": _iso(job.finished_at),
         "parameters": job.get_job_parameters(),
+        "prefect_idempotency_key": job.prefect_idempotency_key,
+        "prefect_flow_run_id": job.prefect_flow_run_id,
     }, 200
 
 
 def rename_job(user: User, job_id: str, name) -> tuple[dict, int]:
-    job = Job.query.filter_by(job_id=job_id, user_id=user.id).one_or_none()
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
     if job is None:
+        return {"status": "failed", "reason": "job not found"}, 404
+    if job.user_id != user.id and not user.is_admin():
         return {"status": "failed", "reason": "job not found"}, 404
     job.name = normalize_job_name(name)
     db.session.commit()
@@ -448,4 +672,152 @@ def rename_job(user: User, job_id: str, name) -> tuple[dict, int]:
         "status": "successful",
         "subid": job.job_id,
         "name": job.name,
+    }, 200
+
+
+_ACTIVE_STATUSES = frozenset(
+    {"RUNNING", "QUEUED", "PENDING", "running", "queued", "pending", "UNKNOWN"}
+)
+
+
+def _prune_derived_products(working_dir: Path, stack_mode: str | None) -> None:
+    patterns = [
+        "*calibrated*",
+        "good_frames.txt",
+        "*.log",
+        "*.proclog",
+    ]
+    if stack_mode and stack_mode != "none":
+        patterns.append(f"*-{stack_mode}.fit")
+        patterns.append(f"*.calibrated.*-{stack_mode}.fit")
+    for pattern in patterns:
+        for path in working_dir.glob(pattern):
+            if path.is_file() and not path.is_symlink():
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    current_app.logger.error("Failed to prune %s: %s", path, exc)
+        for path in working_dir.rglob(pattern):
+            # Skip input role trees for calibrated beside lights — plan says prune calibrated
+            if path.is_file() and not path.is_symlink():
+                rel = path.relative_to(working_dir).as_posix().lower()
+                # Keep original uploads in lights/darks/flats that are not calibrated products
+                if any(rel.startswith(p) for p in ("lights/", "darks/", "flats/", "light/", "dark/", "flat/")):
+                    if "calibrated" not in path.name.lower():
+                        continue
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    current_app.logger.error("Failed to prune %s: %s", path, exc)
+
+
+def delete_job(user: User, job_id: str) -> tuple[dict, int]:
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if job is None:
+        return {"status": "failed", "reason": "job not found"}, 404
+    if job.user_id != user.id and not user.is_admin():
+        return {"status": "failed", "reason": "job not found"}, 404
+
+    if job.status in _ACTIVE_STATUSES:
+        cancel_id = job.prefect_flow_run_id
+        if not cancel_id:
+            flow_run = get_latest_prefect_flow_run_for_job(job.job_id)
+            cancel_id = flow_run.get("id") if flow_run else None
+        if cancel_id:
+            try:
+                cancel_prefect_flow_run(cancel_id)
+            except Exception as exc:
+                current_app.logger.error(
+                    "Failed to cancel Prefect run for %s: %s", job.job_id, exc
+                )
+
+    job_dir = job_result_directory(job)
+    user_root = (Path(current_app.config["RESULT_FOLDER"]) / str(job.user_id)).resolve()
+    if job_dir.is_dir() and job_dir.is_relative_to(user_root):
+        shutil.rmtree(job_dir)
+
+    db.session.delete(job)
+    db.session.commit()
+    return {"status": "successful", "subid": job_id}, 200
+
+
+def retry_job(user: User, job_id: str, *, force: bool = False) -> tuple[dict, int]:
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if job is None:
+        return {"status": "failed", "reason": "job not found"}, 404
+    if job.user_id != user.id and not user.is_admin():
+        return {"status": "failed", "reason": "job not found"}, 404
+
+    status_upper = (job.status or "").upper()
+    if status_upper in {"RUNNING", "QUEUED", "PENDING"}:
+        return {"status": "failed", "reason": "job is still active"}, 400
+    if status_upper == "SUCCESS" and not force:
+        return {
+            "status": "failed",
+            "reason": "job succeeded; pass force=true to re-run",
+        }, 400
+    if status_upper not in {"FAILED", "SUCCESS", "UNKNOWN", "CRASHED"} and not force:
+        return {"status": "failed", "reason": "job is not in a retryable state"}, 400
+
+    params = job.get_job_parameters() or {}
+    if not params.get("working_dir") or not params.get("light_filenames"):
+        return {"status": "failed", "reason": "job has no stored parameters to retry"}, 400
+
+    owner = db.session.get(User, job.user_id) or user
+    validated = validate_submit_paths(
+        {
+            "subid": job.job_id,
+            "working_dir": params["working_dir"],
+            "light_filenames": params.get("light_filenames") or [],
+            "dark_filenames": params.get("dark_filenames") or [],
+            "flat_filenames": params.get("flat_filenames") or [],
+        },
+        user=owner,
+    )
+    if validated[0] is None:
+        return {"status": "failed", "reason": validated[1]}, 400
+
+    working_dir, lights, darks, flats = validated
+    params = {**params, "working_dir": working_dir, "light_filenames": lights,
+              "dark_filenames": darks, "flat_filenames": flats}
+
+    wd = Path(working_dir)
+    _prune_derived_products(wd, job.stack_mode or params.get("stack_mode"))
+
+    deployment_id = resolve_prefect_deployment_id()
+    if not deployment_id:
+        return {"status": "failed", "reason": "Prefect deployment not found"}, 500
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    idem = f"{job.job_id}-retry-{ts}"
+    response = requests.post(
+        prefect_url(f"/deployments/{deployment_id}/create_flow_run"),
+        headers=prefect_headers(),
+        json={
+            "name": idem,
+            "idempotency_key": idem,
+            "parameters": params,
+        },
+        timeout=30,
+    )
+    try:
+        json_resp = response.json()
+    except ValueError:
+        json_resp = {"raw": response.text}
+
+    if response.status_code not in (200, 201):
+        return {"status": "failed", "reason": json_resp}, 500
+
+    state_type = extract_state_type(json_resp.get("state"))
+    job.prefect_idempotency_key = idem
+    job.prefect_flow_run_id = json_resp.get("id")
+    job.set_job_parameters(params)
+    apply_job_status(job, state_type or "PENDING")
+    db.session.commit()
+    return {
+        "status": "successful",
+        "subid": job.job_id,
+        "job_status": job.status,
+        "idempotency_key": idem,
+        "prefect_flow_run_id": job.prefect_flow_run_id,
     }, 200

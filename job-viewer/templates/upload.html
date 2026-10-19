@@ -77,6 +77,47 @@
         </div>
     </form>
 
+    <div class="card shadow-sm mt-4" id="reusePanel">
+        <div class="card-body">
+            <h6 class="fw-bold mb-3">Or reuse from a previous job</h6>
+            {% if current_user.is_admin() %}
+            <div class="mb-2">
+                <label class="form-label small" for="reuseOwnerSelect">User</label>
+                <select id="reuseOwnerSelect" class="form-select form-select-sm"></select>
+            </div>
+            {% endif %}
+            <div class="mb-2">
+                <label class="form-label small" for="reuseJobSelect">Job</label>
+                <select id="reuseJobSelect" class="form-select form-select-sm">
+                    <option value="">Select a job…</option>
+                </select>
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Attach mode</label>
+                <div class="d-flex gap-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="reuseMode" id="reuseModeCopy" value="copy" checked>
+                        <label class="form-check-label small" for="reuseModeCopy">Copy / hard-link</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="reuseMode" id="reuseModeRef" value="reference">
+                        <label class="form-check-label small" for="reuseModeRef">Reference (own jobs)</label>
+                    </div>
+                </div>
+            </div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="reuseDeleteSource">
+                <label class="form-check-label small" for="reuseDeleteSource">Delete source files after copy</label>
+            </div>
+            <div id="reuseFileList" class="border rounded p-2 mb-2" style="max-height: 220px; overflow: auto;">
+                <p class="small text-body-secondary mb-0">Select a job to list reusable files.</p>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="reuseApplyBtn">Use selected files</button>
+            <p class="small text-danger mt-2 mb-0" id="reuseError" hidden></p>
+            <p class="small text-success mt-2 mb-0" id="reuseStatus" hidden></p>
+        </div>
+    </div>
+
     <div id="hiddenJobParameters" style="display: none;">
         <hr class="my-4">
         <h5 class="step-header mb-3"><strong>2. Job parameters</strong></h5>
@@ -232,6 +273,8 @@
 <script type="text/javascript">
     const MAX_TOTAL_SIZE = {{ max_total_size }};
     const NUM_PATTERN = /^[+-]?\d+(\.\d+)?$/;
+    const IS_ADMIN = {{ 'true' if current_user.is_admin() else 'false' }};
+    let reusePayload = null;
 
     function toggleGroupFramesInput() {
         const isChecked = document.getElementById('defaultCheck1').checked;
@@ -282,6 +325,9 @@
     }
 
     function validateFiles(showErrors) {
+        if (reusePayload && (reusePayload.light_filenames || []).length > 0) {
+            return true;
+        }
         const inputs = [
             document.getElementById('fileUpload'),
             document.getElementById('darksUpload'),
@@ -437,6 +483,11 @@
             markField(el, null);
             updateFileInfo(el);
         });
+        reusePayload = null;
+        const reuseStatus = document.getElementById('reuseStatus');
+        const reuseError = document.getElementById('reuseError');
+        if (reuseStatus) { reuseStatus.hidden = true; reuseStatus.textContent = ''; }
+        if (reuseError) { reuseError.hidden = true; reuseError.textContent = ''; }
         document.getElementById('headerMessageOnSumbitFiles').textContent = '';
         setParametersVisible(false);
     }
@@ -511,6 +562,56 @@
         });
     });
 
+    function buildSubmitBody(response) {
+        return {
+            "subid": response.subid,
+            "working_dir": response.working_dir,
+            "light_filenames": response.light_filenames,
+            "dark_filenames": response.dark_filenames || [],
+            "flat_filenames": response.flat_filenames || [],
+            "name": ($('#jobNameInput').val() || '').trim() || null,
+            "telescope": $('#selectTelescope').val(),
+            "stack_mode": $('#selectStackMode').val(),
+            "group_frames": $('#defaultCheck1').is(':checked'),
+            "group_frames_value": $('#groupFramesValue').val(),
+            "ra_field": $('#raFieldInput').val(),
+            "dec_field": $('#decFieldInput').val(),
+            "filter": $('#selectOpticalFilter').val(),
+            "astrometric_catalog": $('#selectAstrometricCatalog').val(),
+            "photometric_catalog": $('#selectPhotometricCatalog').val(),
+            "transient_circle": {
+                "ra": $('#raLocalizationCircleInput').val(),
+                "dec": $('#decLocalizationCircleInput').val(),
+                "radius": $('#radiusLocalizationCircleInput').val()
+            },
+            "apex_conf": $('#apexConfInput').val()
+        };
+    }
+
+    function postSubmit(response, submitBtn, submitStatus) {
+        $.ajax({
+            url: "{{ url_for('post_submit') }}",
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(buildSubmitBody(response)),
+            success: function (submitResponse) {
+                window.location.href = "/submit/" + submitResponse.subid;
+            },
+            error: function (jqXHR) {
+                submitBtn.removeAttribute('disabled');
+                submitStatus.classList.add('text-danger');
+                try {
+                    var jsonResponse = JSON.parse(jqXHR.responseText);
+                    submitStatus.innerHTML = "<strong>Submission failed!</strong> Reason: " +
+                        (jsonResponse.reason || JSON.stringify(jsonResponse));
+                } catch (e) {
+                    submitStatus.innerHTML =
+                        "<strong>Submission failed!</strong> Processing service is not available. Please try again later.";
+                }
+            }
+        });
+    }
+
     function processingProceeder() {
         const submitStatus = document.getElementById('pSubmitStatus');
         submitStatus.classList.remove('text-danger', 'text-success');
@@ -529,6 +630,15 @@
             return;
         }
 
+        const submitBtn = document.getElementById('buttonSubmitJob');
+        submitBtn.setAttribute('disabled', 'disabled');
+
+        if (reusePayload && (reusePayload.light_filenames || []).length > 0) {
+            submitStatus.innerHTML = 'Submitting…';
+            postSubmit(reusePayload, submitBtn, submitStatus);
+            return;
+        }
+
         const lights = $('#fileUpload').prop('files');
         const darks = $('#darksUpload').prop('files');
         const flats = $('#flatsUpload').prop('files');
@@ -538,8 +648,6 @@
         for (let i = 0; i < darks.length; i++) formData.append('darks', darks[i]);
         for (let i = 0; i < flats.length; i++) formData.append('flats', flats[i]);
 
-        const submitBtn = document.getElementById('buttonSubmitJob');
-        submitBtn.setAttribute('disabled', 'disabled');
         submitStatus.innerHTML = 'Uploading…';
 
         $.ajax({
@@ -565,49 +673,7 @@
                     return;
                 }
 
-                $.ajax({
-                    url: "{{ url_for('post_submit') }}",
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify({
-                        "subid": response.subid,
-                        "working_dir": response.working_dir,
-                        "light_filenames": lightFilenames,
-                        "dark_filenames": response.dark_filenames,
-                        "flat_filenames": response.flat_filenames,
-                        "name": ($('#jobNameInput').val() || '').trim() || null,
-                        "telescope": $('#selectTelescope').val(),
-                        "stack_mode": $('#selectStackMode').val(),
-                        "group_frames": $('#defaultCheck1').is(':checked'),
-                        "group_frames_value": $('#groupFramesValue').val(),
-                        "ra_field": $('#raFieldInput').val(),
-                        "dec_field": $('#decFieldInput').val(),
-                        "filter": $('#selectOpticalFilter').val(),
-                        "astrometric_catalog": $('#selectAstrometricCatalog').val(),
-                        "photometric_catalog": $('#selectPhotometricCatalog').val(),
-                        "transient_circle": {
-                            "ra": $('#raLocalizationCircleInput').val(),
-                            "dec": $('#decLocalizationCircleInput').val(),
-                            "radius": $('#radiusLocalizationCircleInput').val()
-                        },
-                        "apex_conf": $('#apexConfInput').val()
-                    }),
-                    success: function (submitResponse) {
-                        window.location.href = "/submit/" + submitResponse.subid;
-                    },
-                    error: function (jqXHR) {
-                        submitBtn.removeAttribute('disabled');
-                        submitStatus.classList.add('text-danger');
-                        try {
-                            var jsonResponse = JSON.parse(jqXHR.responseText);
-                            submitStatus.innerHTML = "<strong>Submission failed!</strong> Reason: " +
-                                (jsonResponse.reason || JSON.stringify(jsonResponse));
-                        } catch (e) {
-                            submitStatus.innerHTML =
-                                "<strong>Submission failed!</strong> Processing service is not available. Please try again later.";
-                        }
-                    }
-                });
+                postSubmit(response, submitBtn, submitStatus);
             },
             error: function (jqXHR) {
                 submitBtn.removeAttribute('disabled');
@@ -627,5 +693,172 @@
         e.preventDefault();
         processingProceeder();
     });
+
+    // --- Reuse from previous job ---
+    async function loadReuseJobs(userId) {
+        const sel = document.getElementById('reuseJobSelect');
+        sel.innerHTML = '<option value="">Select a job…</option>';
+        const params = new URLSearchParams({ per_page: '50', page: '1' });
+        if (userId) params.set('user_id', String(userId));
+        const resp = await fetch('/api/v1/jobs?' + params.toString(), {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await resp.json();
+        (data.submissions || []).forEach((job) => {
+            const opt = document.createElement('option');
+            opt.value = job.subid;
+            opt.textContent = (job.name ? job.name + ' — ' : '') + job.subid.slice(0, 8) + '…';
+            sel.append(opt);
+        });
+    }
+
+    async function loadReuseFiles(jobId) {
+        const box = document.getElementById('reuseFileList');
+        if (!jobId) {
+            box.innerHTML = '<p class="small text-body-secondary mb-0">Select a job to list reusable files.</p>';
+            return;
+        }
+        box.innerHTML = '<p class="small text-body-secondary mb-0">Loading…</p>';
+        const resp = await fetch('/api/v1/jobs/' + encodeURIComponent(jobId) + '/reusable-files', {
+            headers: { Accept: 'application/json' },
+        });
+        const data = await resp.json();
+        const files = data.files || [];
+        if (!files.length) {
+            box.innerHTML = '<p class="small text-body-secondary mb-0">No reusable files in this job.</p>';
+            return;
+        }
+        box.replaceChildren();
+        files.forEach((file, idx) => {
+            const row = document.createElement('div');
+            row.className = 'd-flex align-items-center gap-2 mb-1';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'form-check-input reuse-file-cb';
+            cb.dataset.path = file.path;
+            cb.dataset.jobId = jobId;
+            cb.id = 'reuse-file-' + idx;
+            const role = document.createElement('select');
+            role.className = 'form-select form-select-sm reuse-file-role';
+            role.style.width = '6rem';
+            ['light', 'dark', 'flat'].forEach((r) => {
+                const o = document.createElement('option');
+                o.value = r;
+                o.textContent = r;
+                if ((file.role_hint === 'product' && r === 'light') || file.role_hint === r) {
+                    o.selected = true;
+                }
+                role.append(o);
+            });
+            if (file.role_hint === 'product') role.value = 'light';
+            else if (['light', 'dark', 'flat'].includes(file.role_hint)) role.value = file.role_hint;
+            const label = document.createElement('label');
+            label.className = 'small text-truncate mb-0';
+            label.htmlFor = cb.id;
+            label.textContent = file.path;
+            label.title = file.path;
+            row.append(cb, role, label);
+            box.append(row);
+        });
+    }
+
+    document.getElementById('reuseJobSelect').addEventListener('change', function () {
+        loadReuseFiles(this.value);
+    });
+
+    document.getElementById('reuseApplyBtn').addEventListener('click', async function () {
+        const err = document.getElementById('reuseError');
+        const status = document.getElementById('reuseStatus');
+        err.hidden = true;
+        status.hidden = true;
+        const items = [];
+        document.querySelectorAll('.reuse-file-cb:checked').forEach((cb) => {
+            const role = cb.parentElement.querySelector('.reuse-file-role').value;
+            items.push({
+                from_job_id: cb.dataset.jobId,
+                relative_path: cb.dataset.path,
+                role: role,
+            });
+        });
+        if (!items.length) {
+            err.textContent = 'Select at least one file (including a light).';
+            err.hidden = false;
+            return;
+        }
+        const mode = document.querySelector('input[name="reuseMode"]:checked').value;
+        const deleteSource = document.getElementById('reuseDeleteSource').checked;
+        if (deleteSource && mode === 'copy') {
+            if (!confirm('Delete selected source files after copying into the new job?')) {
+                return;
+            }
+        }
+        try {
+            const resp = await fetch('/api/v1/jobs/reuse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({
+                    items: items,
+                    mode: mode,
+                    delete_source: deleteSource && mode === 'copy',
+                }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.status === 'failed') {
+                throw new Error(data.reason || 'Reuse failed');
+            }
+            ['fileUpload', 'darksUpload', 'flatsUpload'].forEach((id) => {
+                const el = document.getElementById(id);
+                el.value = '';
+                markField(el, null);
+                updateFileInfo(el);
+            });
+            reusePayload = data;
+            status.textContent = 'Reused ' + (data.light_filenames || []).length +
+                ' light(s). Click Next to set parameters.';
+            status.hidden = false;
+        } catch (e) {
+            err.textContent = e.message || 'Reuse failed';
+            err.hidden = false;
+        }
+    });
+
+    ['fileUpload', 'darksUpload', 'flatsUpload'].forEach((id) => {
+        document.getElementById(id).addEventListener('change', function () {
+            if (this.files && this.files.length) {
+                reusePayload = null;
+                const status = document.getElementById('reuseStatus');
+                if (status) { status.hidden = true; status.textContent = ''; }
+            }
+        });
+    });
+
+    (async function initReuse() {
+        if (IS_ADMIN) {
+            const ownerSel = document.getElementById('reuseOwnerSelect');
+            const resp = await fetch('/api/v1/admin/users', { headers: { Accept: 'application/json' } });
+            const data = await resp.json();
+            (data.users || []).forEach((u) => {
+                const opt = document.createElement('option');
+                opt.value = u.id;
+                opt.textContent = u.username;
+                if (String(u.id) === '{{ current_user.id }}') opt.selected = true;
+                ownerSel.append(opt);
+            });
+            ownerSel.addEventListener('change', () => loadReuseJobs(ownerSel.value));
+            await loadReuseJobs(ownerSel.value);
+        } else {
+            await loadReuseJobs(null);
+        }
+        document.getElementById('reuseDeleteSource').addEventListener('change', function () {
+            if (this.checked) {
+                document.getElementById('reuseModeCopy').checked = true;
+            }
+        });
+        document.getElementById('reuseModeRef').addEventListener('change', function () {
+            if (this.checked) {
+                document.getElementById('reuseDeleteSource').checked = false;
+            }
+        });
+    })();
 </script>
 {% endblock %}

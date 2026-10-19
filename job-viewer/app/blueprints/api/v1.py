@@ -1,16 +1,23 @@
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
+from ...models import User
 from ...services.auth import (
     api_login_required,
     revoke_user_api_token,
     rotate_user_api_token,
 )
 from ...services.jobs import (
+    accessible_job,
+    attach_reused_frames,
+    create_job_shell,
     create_prefect_job,
+    delete_job,
     get_job_status_payload,
+    list_reusable_files,
     list_user_jobs,
     rename_job,
+    retry_job,
     store_uploaded_frames,
 )
 
@@ -61,6 +68,30 @@ def upload_job_frames():
     return jsonify(result)
 
 
+@api_v1_bp.route("/jobs/shell", methods=["POST"])
+@api_login_required
+def create_empty_job_shell():
+    return jsonify(create_job_shell(current_user))
+
+
+@api_v1_bp.route("/jobs/reuse", methods=["POST"])
+@api_login_required
+def reuse_job_frames():
+    data = request.get_json(silent=True) or {}
+    items = data.get("items") or []
+    mode = data.get("mode") or "copy"
+    delete_source = bool(data.get("delete_source"))
+    result = attach_reused_frames(
+        current_user,
+        items,
+        mode=mode,
+        delete_source=delete_source,
+    )
+    if isinstance(result, tuple):
+        return jsonify({"status": "failed", "reason": result[1]}), 400
+    return jsonify(result)
+
+
 @api_v1_bp.route("/jobs", methods=["POST"])
 @api_login_required
 def create_job():
@@ -73,13 +104,42 @@ def create_job():
 @api_login_required
 def list_jobs():
     query = request.args.get("q", "").strip()
+    user = current_user
+    user_id = request.args.get("user_id")
+    if user_id is not None:
+        if not current_user.is_admin():
+            return jsonify({"status": "failed", "reason": "admin only"}), 403
+        user = User.query.filter_by(id=int(user_id)).one_or_none()
+        if user is None:
+            return jsonify({"status": "failed", "reason": "user not found"}), 404
     result = list_user_jobs(
-        current_user,
+        user,
         query,
         page=request.args.get("page", 1),
         per_page=request.args.get("per_page", 25),
     )
     return jsonify({"status": "successful", **result})
+
+
+@api_v1_bp.route("/admin/users", methods=["GET"])
+@api_login_required
+def list_users_admin():
+    if not current_user.is_admin():
+        return jsonify({"status": "failed", "reason": "admin only"}), 403
+    users = User.query.order_by(User.username).all()
+    return jsonify(
+        {
+            "status": "successful",
+            "users": [{"id": u.id, "username": u.username} for u in users],
+        }
+    )
+
+
+@api_v1_bp.route("/jobs/<job_id>/reusable-files", methods=["GET"])
+@api_login_required
+def reusable_files(job_id: str):
+    job = accessible_job(job_id)
+    return jsonify({"status": "successful", **list_reusable_files(job)})
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["GET"])
@@ -96,4 +156,20 @@ def patch_job(job_id: str):
     if "name" not in data:
         return jsonify({"status": "failed", "reason": "name field required"}), 400
     body, status = rename_job(current_user, job_id, data.get("name"))
+    return jsonify(body), status
+
+
+@api_v1_bp.route("/jobs/<job_id>", methods=["DELETE"])
+@api_login_required
+def remove_job(job_id: str):
+    body, status = delete_job(current_user, job_id)
+    return jsonify(body), status
+
+
+@api_v1_bp.route("/jobs/<job_id>/retry", methods=["POST"])
+@api_login_required
+def retry_job_route(job_id: str):
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get("force") or request.args.get("force"))
+    body, status = retry_job(current_user, job_id, force=force)
     return jsonify(body), status

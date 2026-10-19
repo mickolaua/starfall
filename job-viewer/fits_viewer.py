@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import struct
 import zlib
@@ -13,6 +14,22 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS
 import astropy.units as u
+
+
+def _is_finite_number(value: Any) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _shape_coords_finite(shape: dict[str, Any]) -> bool:
+    """Reject shapes with NaN/Inf so JSON responses stay valid for browsers."""
+    keys = ("x", "y", "r", "w", "h")
+    for key in keys:
+        if key in shape and not _is_finite_number(shape[key]):
+            return False
+    return _is_finite_number(shape.get("x")) and _is_finite_number(shape.get("y"))
 
 
 PREVIEW_MAX_DIM = 1200
@@ -271,9 +288,10 @@ def _parse_angle_to_pixels(token: str, wcs: WCS | None, frame: str) -> float:
         deg = np.degrees(value)
     else:
         return value
-    if pixscale_deg <= 0:
+    if not _is_finite_number(pixscale_deg) or pixscale_deg <= 0:
         return value
-    return deg / pixscale_deg
+    result = deg / pixscale_deg
+    return result if _is_finite_number(result) else value
 
 
 def _sky_to_pixel(ra_tok: str, dec_tok: str, wcs: WCS, frame: str) -> tuple[float, float]:
@@ -285,7 +303,10 @@ def _sky_to_pixel(ra_tok: str, dec_tok: str, wcs: WCS, frame: str) -> tuple[floa
         # icrs / wcs / default sky
         coord = SkyCoord(f"{ra_tok} {dec_tok}", unit=(u.hourangle, u.deg), frame="icrs")
     x, y = wcs.world_to_pixel(coord)
-    return float(x), float(y)
+    fx, fy = float(x), float(y)
+    if not (_is_finite_number(fx) and _is_finite_number(fy)):
+        raise ValueError("WCS world_to_pixel returned non-finite coordinates")
+    return fx, fy
 
 
 def _parse_shape_args(
@@ -308,7 +329,8 @@ def _parse_shape_args(
                 x = float(parts[0]) - 1.0
                 y = float(parts[1]) - 1.0
                 r = _parse_angle_to_pixels(parts[2], wcs, frame)
-            return {"type": "circle", "x": x, "y": y, "r": r}
+            parsed = {"type": "circle", "x": x, "y": y, "r": r}
+            return parsed if _shape_coords_finite(parsed) else None
         if shape == "box" and len(parts) >= 4:
             if frame in SKY_FRAMES:
                 if wcs is None:
@@ -321,7 +343,8 @@ def _parse_shape_args(
                 y = float(parts[1]) - 1.0
                 w = _parse_angle_to_pixels(parts[2], wcs, frame)
                 h = _parse_angle_to_pixels(parts[3], wcs, frame)
-            return {"type": "box", "x": x, "y": y, "w": w, "h": h}
+            parsed = {"type": "box", "x": x, "y": y, "w": w, "h": h}
+            return parsed if _shape_coords_finite(parsed) else None
     except Exception:
         return None
     return None

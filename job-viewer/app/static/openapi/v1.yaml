@@ -1,0 +1,743 @@
+openapi: 3.0.3
+info:
+  title: Starfall Job Viewer API
+  description: |
+    Public REST API for submitting image-processing jobs and managing results.
+
+    Authenticate with a user API token (`Authorization: Bearer <token>`), created
+    from Profile → Account Settings → API Token, or via `POST /api/v1/auth/token`
+    while already authenticated (session cookie or existing Bearer token).
+
+    Session cookies also work for same-origin browser clients; Swagger "Try it out"
+    uses Bearer auth.
+  version: 0.2.2
+
+servers:
+  - url: /
+    description: Current host
+
+tags:
+  - name: Auth
+    description: User API token lifecycle
+  - name: Jobs
+    description: Upload frames, create/list/retry/delete jobs
+  - name: Admin
+    description: Admin-only helpers
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/auth/token:
+    get:
+      tags: [Auth]
+      summary: Token status
+      description: Whether the current user has an active API token stored.
+      operationId: getAuthTokenStatus
+      responses:
+        "200":
+          description: Token presence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Auth]
+      summary: Create or rotate API token
+      description: |
+        Generates a new personal API token. Any previous token is invalidated.
+        The raw token is returned once and will not be shown again.
+      operationId: createOrRotateAuthToken
+      responses:
+        "200":
+          description: New token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenCreateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Auth]
+      summary: Revoke API token
+      description: Removes the stored API token for the current user.
+      operationId: revokeAuthToken
+      responses:
+        "200":
+          description: Token revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/upload:
+    post:
+      tags: [Jobs]
+      summary: Upload job frames
+      description: |
+        Multipart upload of light (required), dark, and flat FITS/archive files.
+        Creates a new job directory and returns paths for `POST /api/v1/jobs`.
+      operationId: uploadJobFrames
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [lights]
+              properties:
+                lights:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Light frames (at least one)
+                darks:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                flats:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobFilesResponse"
+        "400":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/shell:
+    post:
+      tags: [Jobs]
+      summary: Create empty job shell
+      description: Creates empty lights/darks/flats directories for reference-mode submit.
+      operationId: createJobShell
+      responses:
+        "200":
+          description: Shell created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobFilesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/reuse:
+    post:
+      tags: [Jobs]
+      summary: Reuse frames from prior jobs
+      description: |
+        Build a new job from files of existing jobs.
+        `mode=copy` hardlinks/copies into a new job directory;
+        `mode=reference` returns absolute source paths (own jobs only).
+      operationId: reuseJobFrames
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReuseRequest"
+      responses:
+        "200":
+          description: Reuse successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobFilesResponse"
+        "400":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs:
+    get:
+      tags: [Jobs]
+      summary: List jobs
+      description: |
+        Paginated job list for the current user (newest first).
+        Admins may pass `user_id` to list another user's jobs.
+      operationId: listJobs
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Filter by job id or display name (substring)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: user_id
+          in: query
+          schema:
+            type: integer
+          description: Admin only — list jobs for this user id
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+        "403":
+          $ref: "#/components/responses/Failed"
+        "404":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Jobs]
+      summary: Create and start a job
+      description: |
+        Validate paths, create a Prefect flow run, and persist a Job row.
+        Body fields match the web upload submit payload.
+      operationId: createJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "200":
+          description: Job submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateJobResponse"
+        "400":
+          $ref: "#/components/responses/Failed"
+        "500":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [Jobs]
+      summary: Get job status
+      description: |
+        Returns job metadata and status, syncing from the current Prefect flow run
+        when available.
+      operationId: getJob
+      responses:
+        "200":
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetailResponse"
+        "404":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Jobs]
+      summary: Rename job
+      description: Update the optional display name (`name` may be null to clear).
+      operationId: patchJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  description: Display label, or null to clear
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenameJobResponse"
+        "400":
+          $ref: "#/components/responses/Failed"
+        "404":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Jobs]
+      summary: Delete job
+      description: |
+        Cancels an active Prefect run when possible, deletes the job directory,
+        and removes the database row.
+      operationId: deleteJob
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: successful
+                  subid:
+                    type: string
+        "404":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/{job_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      tags: [Jobs]
+      summary: Retry or re-run a job
+      description: |
+        Starts a new Prefect flow run for an existing job (new idempotency key).
+        Clears derived products; keeps input frames.
+        Successful jobs require `force: true`.
+      operationId: retryJob
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+                  default: false
+                  description: Required to re-run a SUCCESS job
+      responses:
+        "200":
+          description: Retry started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryJobResponse"
+        "400":
+          $ref: "#/components/responses/Failed"
+        "404":
+          $ref: "#/components/responses/Failed"
+        "500":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/jobs/{job_id}/reusable-files:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [Jobs]
+      summary: List reusable files
+      description: |
+        Lists upload-eligible files under a job directory for the reuse picker.
+        Accessible if you own the job or are an admin.
+      operationId: listReusableFiles
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReusableFilesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Job not accessible
+
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      description: Admin only — usernames and ids for cross-user job pickers.
+      operationId: listUsersAdmin
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUsersResponse"
+        "403":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API token
+      description: User API token from Profile or POST /api/v1/auth/token
+
+  parameters:
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Job id (subid / hex string)
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication
+    Failed:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/FailedResponse"
+
+  schemas:
+    FailedResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: failed
+        reason:
+          description: Error detail (string or object)
+        uploaded:
+          type: integer
+          description: Present on some upload failures
+
+    StatusMessageResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        message:
+          type: string
+
+    TokenStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        has_token:
+          type: boolean
+
+    TokenCreateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        token:
+          type: string
+          description: Raw token (shown once)
+        token_type:
+          type: string
+          example: Bearer
+        message:
+          type: string
+
+    JobFilesResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        working_dir:
+          type: string
+        subid:
+          type: string
+        light_filenames:
+          type: array
+          items:
+            type: string
+        dark_filenames:
+          type: array
+          items:
+            type: string
+        flat_filenames:
+          type: array
+          items:
+            type: string
+
+    ReuseItem:
+      type: object
+      required: [from_job_id, relative_path, role]
+      properties:
+        from_job_id:
+          type: string
+        relative_path:
+          type: string
+          description: Path relative to the source job directory
+        role:
+          type: string
+          enum: [light, dark, flat]
+
+    ReuseRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReuseItem"
+        mode:
+          type: string
+          enum: [copy, reference]
+          default: copy
+        delete_source:
+          type: boolean
+          default: false
+          description: When mode=copy, delete source files after attach
+
+    CreateJobRequest:
+      type: object
+      required:
+        - subid
+        - working_dir
+        - light_filenames
+      properties:
+        subid:
+          type: string
+        working_dir:
+          type: string
+        light_filenames:
+          type: array
+          items:
+            type: string
+        dark_filenames:
+          type: array
+          items:
+            type: string
+        flat_filenames:
+          type: array
+          items:
+            type: string
+        name:
+          type: string
+          nullable: true
+          maxLength: 200
+        telescope:
+          type: string
+          example: mondy_azt33ik
+        stack_mode:
+          type: string
+          example: average
+        group_frames:
+          type: boolean
+        group_frames_value:
+          type: integer
+        filter:
+          type: string
+          description: Band / filter name (mapped to Prefect `band`)
+        astrometric_catalog:
+          type: string
+          example: gaia_edr3
+        photometric_catalog:
+          type: string
+          example: gaia_edr3
+        apex_conf:
+          type: string
+          example: default
+        transient_circle:
+          type: object
+          properties:
+            ra:
+              type: string
+            dec:
+              type: string
+            radius:
+              type: string
+        ra_field:
+          type: number
+          nullable: true
+        dec_field:
+          type: number
+          nullable: true
+
+    CreateJobResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        subid:
+          type: string
+        name:
+          type: string
+          nullable: true
+        reason:
+          description: Present on failure
+
+    JobSummary:
+      type: object
+      properties:
+        subid:
+          type: string
+        name:
+          type: string
+          nullable: true
+        status:
+          type: string
+          example: SUCCESS
+        stack_mode:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    JobListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        submissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobSummary"
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+        pages:
+          type: integer
+
+    JobDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        subid:
+          type: string
+        name:
+          type: string
+          nullable: true
+        job_status:
+          type: string
+          description: Lifecycle status (QUEUED, RUNNING, SUCCESS, FAILED, …)
+        stack_mode:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        parameters:
+          type: object
+          nullable: true
+          description: Stored submit parameters (no lifecycle status)
+        prefect_idempotency_key:
+          type: string
+          nullable: true
+        prefect_flow_run_id:
+          type: string
+          nullable: true
+
+    RenameJobResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        subid:
+          type: string
+        name:
+          type: string
+          nullable: true
+
+    RetryJobResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        subid:
+          type: string
+        job_status:
+          type: string
+        idempotency_key:
+          type: string
+        prefect_flow_run_id:
+          type: string
+          nullable: true
+
+    ReusableFile:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        role_hint:
+          type: string
+          enum: [light, dark, flat, product, other]
+        size:
+          type: integer
+
+    ReusableFilesResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReusableFile"
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+
+    AdminUsersResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: successful
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"

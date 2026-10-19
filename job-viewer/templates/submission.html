@@ -72,9 +72,13 @@
                 <span class="small text-body-secondary" id="renameJobStatus" aria-live="polite"></span>
             </div>
         </div>
-        <a class="btn btn-outline-secondary" href="{{ url_for('user_page') }}">
-            <i class="bi bi-arrow-left" aria-hidden="true"></i> My jobs
-        </a>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-secondary" id="retryJobBtn" hidden>Retry job</button>
+            <button type="button" class="btn btn-outline-danger" id="deleteJobBtn">Delete job</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('user_page') }}">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i> My jobs
+            </a>
+        </div>
     </div>
 
     <section class="card shadow-sm" aria-labelledby="jobStatusHeading">
@@ -92,8 +96,8 @@
             </div>
             <div class="alert alert-danger mt-3 mb-0" id="jobError" role="alert" hidden>
                 <span id="jobErrorMessage"></span>
-                <button class="btn btn-sm btn-outline-danger ms-2" id="retryResultsButton" type="button" hidden>
-                    Retry
+                <button class="btn btn-sm btn-outline-secondary ms-2" id="retryResultsButton" type="button" hidden>
+                    Reload results
                 </button>
             </div>
         </div>
@@ -146,13 +150,34 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="jobConfirmModal" tabindex="-1" aria-labelledby="jobConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jobConfirmModalLabel">Confirm</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="jobConfirmModalBody"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="jobConfirmModalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const statusUrl = {{ url_for('get_dag_run_details_ajax', dag_id='process_image', run_id=subid) | tojson }};
+    const statusUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};
     const resultsUrl = {{ url_for('get_job_results', job_id=subid) | tojson }};
     const renameUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};
+    const jobApiUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};
+    const retryJobBtn = document.getElementById('retryJobBtn');
+    const deleteJobBtn = document.getElementById('deleteJobBtn');
     const jobDisplayName = document.getElementById('jobDisplayName');
     const renameJobInput = document.getElementById('renameJobInput');
     const renameJobBtn = document.getElementById('renameJobBtn');
@@ -495,6 +520,43 @@
         }
     }
 
+    function paintJobStatus(rawState) {
+        const state = String(rawState || 'unknown').toLowerCase();
+        const active = ['queued', 'running', 'scheduled', 'deferred', 'pending', 'awaitingretry', 'paused', 'cancelling'].includes(state);
+        const successful = ['success', 'succeeded', 'completed'].includes(state);
+        const failed = ['failed', 'error', 'crashed', 'cancelled'].includes(state);
+
+        stateBadge.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        stateBadge.className = `badge job-status ${successful ? 'text-bg-success' : active ? 'text-bg-primary' : failed ? 'text-bg-danger' : 'text-bg-secondary'}`;
+        jobMessage.textContent = active
+            ? 'Your images are still being processed. This page will update automatically.'
+            : successful
+                ? 'Processing finished successfully. Loading your results…'
+                : failed
+                    ? 'Processing has ended. Any files produced before it stopped are shown below.'
+                    : 'The job status is not recognized yet. This page will keep checking automatically.';
+        jobProgressMessage.textContent = active
+            ? 'Processing your images…'
+            : successful
+                ? 'Loading your results…'
+                : 'Waiting for a recognized job status…';
+        jobProgress.hidden = !active;
+        jobProgress.classList.toggle('d-none', !active);
+        jobError.hidden = true;
+
+        if (retryJobBtn) {
+            retryJobBtn.hidden = active;
+            retryJobBtn.dataset.force = successful ? 'true' : 'false';
+            retryJobBtn.textContent = successful ? 'Re-run job' : 'Retry job';
+        }
+
+        if (active) {
+            resultsSection.hidden = true;
+        }
+
+        return { state, active, successful, failed };
+    }
+
     async function updateJobStatus() {
         if (requestPending) return;
         requestPending = true;
@@ -502,28 +564,7 @@
             const response = await fetch(statusUrl, { headers: { 'Accept': 'application/json' } });
             if (!response.ok) throw new Error('Unable to fetch job status.');
             const payload = await response.json();
-            const state = String(payload.state || 'unknown').toLowerCase();
-            const active = ['queued', 'running', 'scheduled', 'deferred', 'pending', 'awaitingretry', 'paused', 'cancelling'].includes(state);
-            const successful = ['success', 'succeeded', 'completed'].includes(state);
-            const failed = ['failed', 'error', 'crashed', 'cancelled'].includes(state);
-
-            stateBadge.textContent = state.charAt(0).toUpperCase() + state.slice(1);
-            stateBadge.className = `badge job-status ${successful ? 'text-bg-success' : active ? 'text-bg-primary' : failed ? 'text-bg-danger' : 'text-bg-secondary'}`;
-            jobMessage.textContent = active
-                ? 'Your images are still being processed. This page will update automatically.'
-                : successful
-                    ? 'Processing finished successfully. Loading your results…'
-                    : failed
-                        ? 'Processing has ended. Any files produced before it stopped are shown below.'
-                        : 'The job status is not recognized yet. This page will keep checking automatically.';
-            jobProgressMessage.textContent = active
-                ? 'Processing your images…'
-                : successful
-                    ? 'Loading your results…'
-                    : 'Waiting for a recognized job status…';
-            jobProgress.hidden = true;
-            jobProgress.classList.remove('d-none');
-            jobError.hidden = true;
+            const { active } = paintJobStatus(payload.job_status || payload.state);
 
             if (!active) {
                 clearInterval(pollTimer);
@@ -543,6 +584,110 @@
         resultsLoaded = false;
         loadResults();
     });
+
+    let jobConfirmPending = null;
+    const jobConfirmModalEl = document.getElementById('jobConfirmModal');
+    const jobConfirmModal = jobConfirmModalEl
+        ? bootstrap.Modal.getOrCreateInstance(jobConfirmModalEl)
+        : null;
+    const jobConfirmTitle = document.getElementById('jobConfirmModalLabel');
+    const jobConfirmBody = document.getElementById('jobConfirmModalBody');
+    const jobConfirmBtn = document.getElementById('jobConfirmModalConfirm');
+
+    function openJobConfirm({ title, body, confirmLabel, danger, onConfirm }) {
+        if (!jobConfirmModal) return;
+        jobConfirmPending = onConfirm;
+        jobConfirmTitle.textContent = title;
+        jobConfirmBody.textContent = body;
+        jobConfirmBtn.textContent = confirmLabel || 'Confirm';
+        jobConfirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+        jobConfirmModal.show();
+    }
+
+    if (jobConfirmBtn) {
+        jobConfirmBtn.addEventListener('click', async () => {
+            const action = jobConfirmPending;
+            jobConfirmPending = null;
+            jobConfirmModal.hide();
+            if (typeof action === 'function') {
+                jobConfirmBtn.disabled = true;
+                try {
+                    await action();
+                } finally {
+                    jobConfirmBtn.disabled = false;
+                }
+            }
+        });
+    }
+    if (jobConfirmModalEl) {
+        jobConfirmModalEl.addEventListener('hidden.bs.modal', () => {
+            jobConfirmPending = null;
+        });
+    }
+
+    if (retryJobBtn) {
+        retryJobBtn.addEventListener('click', () => {
+            const force = retryJobBtn.dataset.force === 'true';
+            openJobConfirm({
+                title: force ? 'Re-run job?' : 'Retry job?',
+                body: force
+                    ? 'Re-run this job? Derived products will be cleared; input frames are kept.'
+                    : 'Start processing again for this job? Derived products will be cleared; input frames are kept.',
+                confirmLabel: force ? 'Re-run' : 'Retry',
+                danger: false,
+                onConfirm: async () => {
+                    retryJobBtn.disabled = true;
+                    try {
+                        const resp = await fetch(jobApiUrl + '/retry', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ force: force }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok || data.status === 'failed') {
+                            throw new Error(data.reason || 'Retry failed');
+                        }
+                        resultsLoaded = false;
+                        resultsSection.hidden = true;
+                        paintJobStatus(data.job_status || 'queued');
+                        if (!pollTimer) {
+                            pollTimer = setInterval(updateJobStatus, 5000);
+                        }
+                        await updateJobStatus();
+                    } catch (e) {
+                        alert(e.message || 'Retry failed');
+                    } finally {
+                        retryJobBtn.disabled = false;
+                    }
+                },
+            });
+        });
+    }
+
+    if (deleteJobBtn) {
+        deleteJobBtn.addEventListener('click', () => {
+            openJobConfirm({
+                title: 'Delete job?',
+                body: 'Remove this job and all of its files? This cannot be undone.',
+                confirmLabel: 'Delete',
+                danger: true,
+                onConfirm: async () => {
+                    deleteJobBtn.disabled = true;
+                    try {
+                        const resp = await fetch(jobApiUrl, { method: 'DELETE' });
+                        const data = await resp.json();
+                        if (!resp.ok || data.status === 'failed') {
+                            throw new Error(data.reason || 'Delete failed');
+                        }
+                        window.location.href = "{{ url_for('user_page') }}";
+                    } catch (e) {
+                        alert(e.message || 'Delete failed');
+                        deleteJobBtn.disabled = false;
+                    }
+                },
+            });
+        });
+    }
 
     updateJobStatus();
     pollTimer = setInterval(updateJobStatus, 5000);

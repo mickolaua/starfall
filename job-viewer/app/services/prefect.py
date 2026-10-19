@@ -93,6 +93,66 @@ def get_prefect_flow_run_by_idempotency_key(key: str) -> dict | None:
     return runs[0] if runs else None
 
 
+def get_prefect_flow_run_by_id(flow_run_id: str) -> dict | None:
+    if not flow_run_id:
+        return None
+    response = requests.get(
+        prefect_url(f"/flow_runs/{flow_run_id}"),
+        headers=prefect_headers(),
+        timeout=10,
+    )
+    if response.status_code != 200:
+        current_app.logger.error(
+            "Prefect flow-run get failed for %s: %s %s",
+            flow_run_id,
+            response.status_code,
+            response.text,
+        )
+        return None
+    return response.json()
+
+
+def get_latest_prefect_flow_run_for_job(job_id: str) -> dict | None:
+    """Latest flow run for a job (original idempotency key or retry-* names)."""
+    response = requests.post(
+        prefect_url("/flow_runs/filter"),
+        headers=prefect_headers(),
+        json={
+            "flow_runs": {
+                "name": {"like_": f"{job_id}%"},
+            },
+            "limit": 5,
+            "sort": "START_TIME_DESC",
+        },
+        timeout=10,
+    )
+    if response.status_code != 200:
+        # Fallback: idempotency key exact / prefix via any_ original key
+        return get_prefect_flow_run_by_idempotency_key(job_id)
+    runs = response.json() or []
+    if runs:
+        return runs[0]
+    return get_prefect_flow_run_by_idempotency_key(job_id)
+
+
+def cancel_prefect_flow_run(flow_run_id: str) -> bool:
+    response = requests.post(
+        prefect_url(f"/flow_runs/{flow_run_id}/set_state"),
+        headers=prefect_headers(),
+        json={"state": {"type": "CANCELLED", "message": "Cancelled by user"}},
+        timeout=15,
+    )
+    if response.status_code not in (200, 201):
+        current_app.logger.error(
+            "Prefect cancel failed for %s: %s %s",
+            flow_run_id,
+            response.status_code,
+            response.text,
+        )
+        return False
+    return True
+
+
 def normalize_flow_run_for_ui(flow_run: dict, deployment_id: str = "") -> dict:
     """Shape Prefect flow-run data like legacy Airflow dag-run fields for templates."""
     state_type = extract_state_type(flow_run.get("state"))

@@ -83,6 +83,7 @@
                                     <th scope="col">Name</th>
                                     <th scope="col">Submission ID</th>
                                     <th scope="col">Status</th>
+                                    <th scope="col">Started</th>
                                     <th scope="col" class="text-end">Action</th>
                                 </tr>
                             </thead>
@@ -218,6 +219,25 @@
         </div>
     </div>
 </div>
+
+<!-- Job retry / delete confirmation -->
+<div class="modal fade" id="jobConfirmModal" tabindex="-1" aria-labelledby="jobConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jobConfirmModalLabel">Confirm</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="jobConfirmModalBody"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="jobConfirmModalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -291,13 +311,33 @@
                         const displayName = job.name
                             ? $('<div>').text(job.name).html()
                             : '<span class="text-body-secondary">—</span>';
+                        let started = '—';
+                        if (job.started_at) {
+                            const d = new Date(job.started_at);
+                            started = isNaN(d.getTime()) ? '—' : d.toLocaleString();
+                        }
+                        const statusUpper = (job.status || '').toUpperCase();
+                        const canRetry = ['FAILED', 'UNKNOWN', 'CRASHED', 'SUCCESS'].includes(statusUpper);
+                        const actions = [
+                            `<a href="/submit/${job.subid}" class="btn btn-sm btn-outline-primary">View</a>`,
+                        ];
+                        if (canRetry) {
+                            const force = statusUpper === 'SUCCESS' ? 'true' : 'false';
+                            actions.push(
+                                `<button type="button" class="btn btn-sm btn-outline-secondary btn-retry-job" data-subid="${job.subid}" data-force="${force}">Retry</button>`
+                            );
+                        }
+                        actions.push(
+                            `<button type="button" class="btn btn-sm btn-outline-danger btn-delete-job" data-subid="${job.subid}">Delete</button>`
+                        );
                         const row = `
                             <tr>
                                 <td class="fw-semibold">${displayName}</td>
                                 <td><code class="small">${job.subid}</code></td>
-                                <td><span class="badge ${statusClass}">${job.status.toUpperCase()}</span></td>
+                                <td><span class="badge ${statusClass}">${statusUpper}</span></td>
+                                <td class="small text-nowrap">${started}</td>
                                 <td class="text-end">
-                                    <a href="/submit/${job.subid}" class="btn btn-sm btn-outline-primary">View</a>
+                                    <div class="d-inline-flex flex-wrap gap-1 justify-content-end">${actions.join('')}</div>
                                 </td>
                             </tr>`;
                         $tbody.append(row);
@@ -308,6 +348,97 @@
                 }
             });
         }
+
+        let jobConfirmPending = null;
+        const jobConfirmModalEl = document.getElementById('jobConfirmModal');
+        const jobConfirmModal = jobConfirmModalEl
+            ? bootstrap.Modal.getOrCreateInstance(jobConfirmModalEl)
+            : null;
+        const jobConfirmTitle = document.getElementById('jobConfirmModalLabel');
+        const jobConfirmBody = document.getElementById('jobConfirmModalBody');
+        const jobConfirmBtn = document.getElementById('jobConfirmModalConfirm');
+
+        function openJobConfirm({ title, body, confirmLabel, danger, onConfirm }) {
+            if (!jobConfirmModal) return;
+            jobConfirmPending = onConfirm;
+            jobConfirmTitle.textContent = title;
+            jobConfirmBody.textContent = body;
+            jobConfirmBtn.textContent = confirmLabel || 'Confirm';
+            jobConfirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+            jobConfirmModal.show();
+        }
+
+        if (jobConfirmBtn) {
+            jobConfirmBtn.addEventListener('click', async function () {
+                const action = jobConfirmPending;
+                jobConfirmPending = null;
+                jobConfirmModal.hide();
+                if (typeof action === 'function') {
+                    jobConfirmBtn.disabled = true;
+                    try {
+                        await action();
+                    } finally {
+                        jobConfirmBtn.disabled = false;
+                    }
+                }
+            });
+        }
+        if (jobConfirmModalEl) {
+            jobConfirmModalEl.addEventListener('hidden.bs.modal', function () {
+                jobConfirmPending = null;
+            });
+        }
+
+        $('#userSubmissionsTable').on('click', '.btn-delete-job', function () {
+            const subid = this.dataset.subid;
+            openJobConfirm({
+                title: 'Delete job?',
+                body: 'Remove this job and all of its files? This cannot be undone.',
+                confirmLabel: 'Delete',
+                danger: true,
+                onConfirm: async () => {
+                    try {
+                        const resp = await fetch('/api/v1/jobs/' + encodeURIComponent(subid), { method: 'DELETE' });
+                        const data = await resp.json();
+                        if (!resp.ok || data.status === 'failed') {
+                            throw new Error(data.reason || 'Delete failed');
+                        }
+                        fetchSubmissions($('#submissionSearch').val(), currentPage);
+                    } catch (e) {
+                        alert(e.message || 'Delete failed');
+                    }
+                },
+            });
+        });
+
+        $('#userSubmissionsTable').on('click', '.btn-retry-job', function () {
+            const subid = this.dataset.subid;
+            const force = this.dataset.force === 'true';
+            openJobConfirm({
+                title: force ? 'Re-run job?' : 'Retry job?',
+                body: force
+                    ? 'Re-run this successful job? Derived products will be cleared; input frames are kept.'
+                    : 'Start processing again for this job? Derived products will be cleared; input frames are kept.',
+                confirmLabel: force ? 'Re-run' : 'Retry',
+                danger: false,
+                onConfirm: async () => {
+                    try {
+                        const resp = await fetch('/api/v1/jobs/' + encodeURIComponent(subid) + '/retry', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ force: force }),
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok || data.status === 'failed') {
+                            throw new Error(data.reason || 'Retry failed');
+                        }
+                        window.location.href = '/submit/' + subid;
+                    } catch (e) {
+                        alert(e.message || 'Retry failed');
+                    }
+                },
+            });
+        });
 
         $('#searchBtn').on('click', function() {
             currentPage = 1;

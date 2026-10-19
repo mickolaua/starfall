@@ -43,8 +43,20 @@
         overflow: visible;
     }
     .layer-list {
-        max-height: 180px;
+        max-height: 280px;
         overflow: auto;
+    }
+    .layer-list .shape-list {
+        list-style: none;
+        margin: 0.25rem 0 0 1.5rem;
+        padding: 0;
+    }
+    .layer-list .shape-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        font-size: 0.8rem;
     }
     .header-cards {
         max-height: 260px;
@@ -434,12 +446,47 @@
         });
     }
 
+    function shapeLabel(shape) {
+        const type = shape.type || 'shape';
+        const x = Number.isFinite(shape.x) ? shape.x.toFixed(1) : '?';
+        const y = Number.isFinite(shape.y) ? shape.y.toFixed(1) : '?';
+        let label = `${type} @ (${x}, ${y})`;
+        if (shape.text) label += ` — ${shape.text}`;
+        return label;
+    }
+
+    function removeLayer(layerId) {
+        layers = layers.filter(layer => layer.id !== layerId);
+        renderLayerList();
+        redrawRegions();
+    }
+
+    function removeShape(layerId, shapeIndex) {
+        const layer = layers.find(l => l.id === layerId);
+        if (!layer || !Array.isArray(layer.shapes)) return;
+        if (shapeIndex < 0 || shapeIndex >= layer.shapes.length) return;
+        layer.shapes.splice(shapeIndex, 1);
+        if (layer.shapes.length === 0) {
+            removeLayer(layerId);
+            return;
+        }
+        renderLayerList();
+        redrawRegions();
+    }
+
     function renderLayerList() {
         layerList.replaceChildren();
         layerEmpty.hidden = layers.length > 0;
         layers.forEach(layer => {
+            const block = document.createElement('div');
+            block.className = 'border rounded px-2 py-1';
+
             const row = document.createElement('div');
-            row.className = 'form-check';
+            row.className = 'd-flex align-items-center gap-2';
+
+            const checkWrap = document.createElement('div');
+            checkWrap.className = 'form-check mb-0 flex-grow-1';
+
             const input = document.createElement('input');
             input.type = 'checkbox';
             input.className = 'form-check-input';
@@ -449,12 +496,49 @@
                 layer.visible = input.checked;
                 redrawRegions();
             });
+
             const label = document.createElement('label');
             label.className = 'form-check-label small';
             label.htmlFor = layer.id;
             label.textContent = `${layer.name} (${(layer.shapes || []).length})`;
-            row.append(input, label);
-            layerList.append(row);
+
+            checkWrap.append(input, label);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-outline-danger btn-sm py-0 px-2';
+            removeBtn.textContent = 'Remove';
+            removeBtn.title = 'Remove this layer';
+            removeBtn.addEventListener('click', () => removeLayer(layer.id));
+
+            row.append(checkWrap, removeBtn);
+            block.append(row);
+
+            const shapes = layer.shapes || [];
+            if (shapes.length > 0) {
+                const list = document.createElement('ul');
+                list.className = 'shape-list';
+                shapes.forEach((shape, index) => {
+                    const item = document.createElement('li');
+                    const text = document.createElement('span');
+                    text.className = 'text-body-secondary text-truncate';
+                    text.textContent = shapeLabel(shape);
+                    text.title = shapeLabel(shape);
+
+                    const shapeBtn = document.createElement('button');
+                    shapeBtn.type = 'button';
+                    shapeBtn.className = 'btn btn-link btn-sm text-danger p-0 text-decoration-none';
+                    shapeBtn.setAttribute('aria-label', 'Remove shape');
+                    shapeBtn.textContent = '×';
+                    shapeBtn.addEventListener('click', () => removeShape(layer.id, index));
+
+                    item.append(text, shapeBtn);
+                    list.append(item);
+                });
+                block.append(list);
+            }
+
+            layerList.append(block);
         });
     }
 
