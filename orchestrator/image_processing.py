@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import shlex
-from pathlib import Path
+import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -100,6 +102,79 @@ def _as_rel_or_abs(working_dir: Path, path: str) -> str:
         return str(p)
 
 
+def _hardlink_or_copy(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        return
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
+
+
+def _unique_name(dest_dir: Path, name: str) -> Path:
+    candidate = dest_dir / name
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem
+    suffix = candidate.suffix
+    n = 1
+    while True:
+        candidate = dest_dir / f"{stem}_{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def _stage_path_list(wd: Path, paths: list[str], role_subdir: str) -> list[str]:
+    """Ensure each file lives under working_dir/role_subdir (hardlink or copy)."""
+    role_dir = wd / role_subdir
+    role_dir.mkdir(parents=True, exist_ok=True)
+    wd_res = wd.resolve()
+    staged: list[str] = []
+    for raw in paths or []:
+        src = Path(raw).resolve()
+        if not src.is_file():
+            raise FileNotFoundError(f"Missing input file: {raw}")
+        try:
+            if src.is_relative_to(wd_res):
+                staged.append(str(src))
+                continue
+        except (ValueError, AttributeError):
+            pass
+        dest = _unique_name(role_dir, src.name)
+        _hardlink_or_copy(src, dest)
+        staged.append(str(dest.resolve()))
+    return staged
+
+
+@task(name="stage_inputs")
+def stage_inputs(
+    working_dir: str,
+    light_filenames: list[str] | None = None,
+    dark_filenames: list[str] | None = None,
+    flat_filenames: list[str] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """
+    Materialize foreign abs paths into working_dir/{lights,darks,flats}
+    so Apex can use ./darks/ and ./flats/ safely.
+    """
+    logger = get_run_logger()
+    wd = Path(working_dir)
+    wd.mkdir(parents=True, exist_ok=True)
+    lights = _stage_path_list(wd, list(light_filenames or []), "lights")
+    darks = _stage_path_list(wd, list(dark_filenames or []), "darks")
+    flats = _stage_path_list(wd, list(flat_filenames or []), "flats")
+    logger.info(
+        "stage_inputs: lights=%d darks=%d flats=%d under %s",
+        len(lights),
+        len(darks),
+        len(flats),
+        wd,
+    )
+    return lights, darks, flats
+
+
 @task(name="prepare")
 def prepare(
     working_dir: str,
@@ -117,6 +192,11 @@ def prepare(
     logger = get_run_logger()
     
     wd = Path(working_dir)
+    dark_filenames = dark_filenames or []
+    flat_filenames = flat_filenames or []
+    lights = [_as_rel_or_abs(wd, f) for f in light_filenames]
+    darks = [_as_rel_or_abs(wd, f) for f in dark_filenames]
+    flats = [_as_rel_or_abs(wd, f) for f in flat_filenames]
 
     py = shlex.quote(APEX_PYTHON_PATH)
 
@@ -138,7 +218,7 @@ def prepare(
         ShellOperation(
             commands=[
                 f"{py} -m apex.scripts.apex_hedit "
-                f"{_shell_join(light_filenames)} {_shell_join(dark_filenames)} {_shell_join(flat_filenames)} action=edit fields={shlex.quote(hedit_fields)}"
+                f"{_shell_join(lights)} {_shell_join(darks)} {_shell_join(flats)} action=edit fields={shlex.quote(hedit_fields)}"
             ],
             working_dir=str(wd),
             env=_apex_env(telescope),
@@ -151,16 +231,18 @@ def prepare(
     if telescope == "abao_as32":
         wcs_hedit_opts = "xpixsize=0.0135 ypixsize=0.0135 focalen=2141"
 
-    commands = [
-        f"{py} -m apex.scripts.wcs_hedit {_shell_join(light_filenames)} pixsize_unit=mm "
-        f"object_ra={shlex.quote(ra)} object_dec={shlex.quote(dec)} {wcs_hedit_opts}"
-    ]
+    if wcs_hedit_opts:
+        
+        commands = [
+            f"{py} -m apex.scripts.wcs_hedit {_shell_join(lights)} pixsize_unit=mm "
+            f"object_ra={shlex.quote(ra)} object_dec={shlex.quote(dec)} {wcs_hedit_opts}"
+        ]
 
-    ShellOperation(
-        commands=commands,
-        working_dir=str(wd),
-        env=_apex_env(telescope),
-    ).run()
+        ShellOperation(
+            commands=commands,
+            working_dir=str(wd),
+            env=_apex_env(telescope),
+        ).run()
 
 
 @task(name="calibrate_images")
@@ -412,9 +494,12 @@ def image_processing(
     apex_conf = apex_conf or opts.get("apex_conf")
     telescope = telescope or opts.get("telescope")
 
-    lights = list(light_filenames or [])
-    darks = list(dark_filenames or [])
-    flats = list(flat_filenames or [])
+    lights, darks, flats = stage_inputs(
+        working_dir,
+        list(light_filenames or []),
+        list(dark_filenames or []),
+        list(flat_filenames or []),
+    )
     need_calib = bool(darks or flats)
     need_series = len(lights) > 1
 
@@ -434,8 +519,8 @@ def image_processing(
         photometric_catalog,
         transient_circle,
     )
-    
-    prepare(working_dir, lights, darks, flats, telescope, ra_field, dec_field)
+
+    prepare(working_dir, lights, darks, flats, telescope, ra_field, dec_field, band)
 
     if need_calib:
         calibrated = calibrate_images(working_dir, lights, darks, flats, telescope)
