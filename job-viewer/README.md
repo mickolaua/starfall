@@ -49,6 +49,8 @@ Do not run both apps in the same process. Point Prefect callbacks at whichever a
 
 Interactive OpenAPI (Swagger UI) for `/api/v1`: **[/api/docs](/api/docs)** — machine-readable spec at [`/api/openapi.yaml`](/api/openapi.yaml).
 
+Thin status poll: `GET /api/v1/jobs/<job_id>/status` (legacy `GET /api/dag/<dag_id>/run/<job_id>` redirects here). Admin Prefect UI lives at `/admin/prefect`.
+
 Create or rotate a user token from **Profile → Account Settings → API Token**, or:
 
 ```bash

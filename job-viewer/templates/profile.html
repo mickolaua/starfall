@@ -31,16 +31,9 @@
 
 {% block content %}
 <div class="container profile-container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="h3 mb-0">User Profile</h1>
-            <p class="text-body-secondary">Manage your account and track your image processing jobs.</p>
-        </div>
-        {% if current_user.is_admin() %}
-        <a href="{{ url_for('admin') }}" class="btn btn-outline-primary">
-            <i class="bi bi-shield-lock"></i> Admin Panel
-        </a>
-        {% endif %}
+    <div class="mb-4">
+        <h1 class="h3 mb-0">User Profile</h1>
+        <p class="text-body-secondary">Manage your account and track your image processing jobs.</p>
     </div>
 
     <!-- Tabs Navigation -->

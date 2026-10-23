@@ -148,64 +148,101 @@ def admin():
     )
 
 
-@pages_bp.route("/dag")
+@pages_bp.route("/admin/prefect")
 @role_required("admin")
 def dag():
-    response = requests.post(
-        prefect_url("/deployments/filter"),
-        headers=prefect_headers(),
-        json={"limit": 200},
-        timeout=10,
-    )
-    deployments = response.json() if response.status_code == 200 else []
-    dags = [
-        {
-            "dag_id": d.get("id"),
-            "dag_display_name": d.get("name"),
-            "name": d.get("name"),
-        }
-        for d in deployments
-    ]
-    return render_template("dag.html", dags=dags)
+    error = None
+    dags = []
+    try:
+        response = requests.post(
+            prefect_url("/deployments/filter"),
+            headers=prefect_headers(),
+            json={"limit": 200},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            error = f"Prefect API returned {response.status_code}."
+        else:
+            deployments = response.json() or []
+            dags = [
+                {
+                    "dag_id": d.get("id"),
+                    "dag_display_name": d.get("name"),
+                    "name": d.get("name"),
+                }
+                for d in deployments
+            ]
+    except requests.RequestException as exc:
+        error = f"Could not reach Prefect: {exc}"
+    return render_template("dag.html", dags=dags, error=error)
 
 
-@pages_bp.route("/dag/<dag_id>")
+@pages_bp.route("/admin/prefect/<dag_id>")
 @role_required("admin")
 def dag_details(dag_id):
-    response = requests.post(
-        prefect_url("/flow_runs/filter"),
-        headers=prefect_headers(),
-        json={
-            "deployments": {"id": {"any_": [dag_id]}},
-            "limit": 50,
-            "sort": "START_TIME_DESC",
-        },
-        timeout=10,
-    )
-    flow_runs = response.json() if response.status_code == 200 else []
-    dag_runs = [
-        normalize_flow_run_for_ui(run, deployment_id=dag_id) for run in flow_runs
-    ]
+    error = None
+    dag_runs = []
+    try:
+        response = requests.post(
+            prefect_url("/flow_runs/filter"),
+            headers=prefect_headers(),
+            json={
+                "deployments": {"id": {"any_": [dag_id]}},
+                "limit": 50,
+                "sort": "START_TIME_DESC",
+            },
+            timeout=10,
+        )
+        if response.status_code != 200:
+            error = f"Prefect API returned {response.status_code}."
+        else:
+            flow_runs = response.json() or []
+            dag_runs = [
+                normalize_flow_run_for_ui(run, deployment_id=dag_id) for run in flow_runs
+            ]
+    except requests.RequestException as exc:
+        error = f"Could not reach Prefect: {exc}"
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return render_template(
-            "dag_runs_partial.html", dag_runs=dag_runs, dag_id=dag_id
+            "dag_runs_partial.html",
+            dag_runs=dag_runs,
+            dag_id=dag_id,
+            error=error,
         )
 
-    return render_template("dag_details.html", dag_id=dag_id, dag_runs=dag_runs)
+    return render_template(
+        "dag_details.html",
+        dag_id=dag_id,
+        dag_runs=dag_runs,
+        error=error,
+    )
 
 
-@pages_bp.route("/dag/<dag_id>/run/<run_id>")
+@pages_bp.route("/admin/prefect/<dag_id>/run/<run_id>")
 @role_required("admin")
 def dag_run_details(dag_id: str, run_id: str):
-    response = requests.get(
-        prefect_url(f"/flow_runs/{run_id}"),
-        headers=prefect_headers(),
-        timeout=10,
-    )
-    if response.status_code == 200:
-        dag_run = normalize_flow_run_for_ui(response.json(), deployment_id=dag_id)
-    else:
+    error = None
+    try:
+        response = requests.get(
+            prefect_url(f"/flow_runs/{run_id}"),
+            headers=prefect_headers(),
+            timeout=10,
+        )
+        if response.status_code == 200:
+            dag_run = normalize_flow_run_for_ui(response.json(), deployment_id=dag_id)
+        else:
+            error = f"Prefect API returned {response.status_code}."
+            dag_run = {
+                "dag_id": dag_id,
+                "dag_run_id": run_id,
+                "execution_date": None,
+                "state": "UNKNOWN",
+                "start_date": None,
+                "end_date": None,
+            }
+    except requests.RequestException as exc:
+        error = f"Could not reach Prefect: {exc}"
         dag_run = {
             "dag_id": dag_id,
             "dag_run_id": run_id,
@@ -215,7 +252,27 @@ def dag_run_details(dag_id: str, run_id: str):
             "end_date": None,
         }
 
-    return render_template("dag_run_details.html", dag_run=dag_run)
+    return render_template("dag_run_details.html", dag_run=dag_run, error=error)
+
+
+@pages_bp.route("/dag")
+@role_required("admin")
+def dag_redirect():
+    return redirect(url_for("dag"), code=302)
+
+
+@pages_bp.route("/dag/<dag_id>")
+@role_required("admin")
+def dag_details_redirect(dag_id):
+    return redirect(url_for("dag_details", dag_id=dag_id), code=302)
+
+
+@pages_bp.route("/dag/<dag_id>/run/<run_id>")
+@role_required("admin")
+def dag_run_details_redirect(dag_id: str, run_id: str):
+    return redirect(
+        url_for("dag_run_details", dag_id=dag_id, run_id=run_id), code=302
+    )
 
 
 @pages_bp.route("/assets/js/js9/<path:path>", methods=["GET"])

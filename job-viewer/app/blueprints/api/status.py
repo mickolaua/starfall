@@ -1,10 +1,10 @@
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, jsonify, redirect, request
 from flask_login import current_user, login_required
 
 from ...extensions import db
-from ...models import Job, User
+from ...models import User
 from ...services.auth import api_login_required
-from ...services.jobs import create_prefect_job, list_user_jobs, sync_job_status_from_prefect
+from ...services.jobs import create_prefect_job, list_user_jobs
 
 api_status_bp = Blueprint("api_status", __name__)
 
@@ -52,23 +52,8 @@ def change_password():
 @api_status_bp.route("/api/dag/<dag_id>/run/<run_id>", methods=["GET"])
 @api_login_required
 def get_dag_run_details_ajax(dag_id: str, run_id: str):
-    """Legacy Airflow-shaped status poll; prefer GET /api/v1/jobs/<job_id>."""
-    job = Job.query.filter_by(job_id=run_id, user_id=current_user.id).one_or_none()
-    if job is None:
-        abort(404)
-
-    try:
-        sync_job_status_from_prefect(job)
-    except Exception:
-        pass
-
-    return jsonify(
-        {
-            "state": (job.status or "unknown").lower(),
-            "dag_run_id": run_id,
-            "flow_run_id": job.prefect_flow_run_id,
-        }
-    )
+    """Legacy path; redirects to GET /api/v1/jobs/<job_id>/status."""
+    return redirect(f"/api/v1/jobs/{run_id}/status", code=302)
 
 
 @api_status_bp.route("/submit", methods=["POST"])
