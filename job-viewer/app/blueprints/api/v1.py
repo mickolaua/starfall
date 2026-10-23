@@ -1,7 +1,7 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user
 
-from ...models import User
+from ...models import Job, User
 from ...services.auth import (
     api_login_required,
     revoke_user_api_token,
@@ -19,6 +19,7 @@ from ...services.jobs import (
     rename_job,
     retry_job,
     store_uploaded_frames,
+    sync_job_status_from_prefect,
 )
 
 api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
@@ -147,6 +148,29 @@ def reusable_files(job_id: str):
 def get_job(job_id: str):
     body, status = get_job_status_payload(current_user, job_id)
     return jsonify(body), status
+
+
+@api_v1_bp.route("/jobs/<job_id>/status", methods=["GET"])
+@api_login_required
+def get_job_status(job_id: str):
+    """Thin status poll (replaces legacy /api/dag/.../run/...)."""
+    job = Job.query.filter_by(job_id=job_id).one_or_none()
+    if job is None or (job.user_id != current_user.id and not current_user.is_admin()):
+        abort(404)
+
+    try:
+        sync_job_status_from_prefect(job)
+    except Exception:
+        pass
+
+    return jsonify(
+        {
+            "state": (job.status or "unknown").lower(),
+            "job_id": job_id,
+            "dag_run_id": job_id,
+            "flow_run_id": job.prefect_flow_run_id,
+        }
+    )
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["PATCH"])

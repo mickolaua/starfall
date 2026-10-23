@@ -1,25 +1,31 @@
 {% extends "basic_page.html" %}
 
 {% block content %}
-<h1>Deployment: {{ dag_id }}</h1>
-{# Airflow (legacy): <h1>DAG: {{ dag_id }}</h1> #}
-<h2>Flow Runs</h2>
-{# Airflow (legacy): <h2>DAG Runs</h2> #}
-<div id="dag-runs">
-    {% for run in dag_runs %}
-    <div class="card mt-4">
-        <div class="card-body">
-            <h3>Start: {{ run['execution_date'] }}</h3>
-            <p>Status: {{ run['state'] }}</p>
-            <a href="{{ url_for('dag_run_details', dag_id=dag_id, run_id=run['dag_run_id']) }}">View Details</a>
+<div class="container py-5" style="max-width: 1100px;">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-2">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin') }}">Admin</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('dag') }}">Prefect</a></li>
+                    <li class="breadcrumb-item active text-truncate" style="max-width: 12rem;" aria-current="page">{{ dag_id }}</li>
+                </ol>
+            </nav>
+            <h1 class="h3 mb-1">Flow runs</h1>
+            <p class="text-body-secondary mb-0 font-monospace small">Deployment {{ dag_id }}</p>
         </div>
+        <a href="{{ url_for('dag') }}" class="btn btn-outline-secondary btn-sm">All deployments</a>
     </div>
-    {% endfor %}
+
+    {% if error %}
+    <div class="alert alert-warning" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <div id="dag-runs">
+        {% include "dag_runs_partial.html" %}
+    </div>
 </div>
-<a href="{{ url_for('dag') }}">Back to Deployments</a>
-
 {% endblock %}
-
 
 {% block scripts %}
 <script>
@@ -27,6 +33,7 @@
         $.ajax({
             url: "{{ url_for('dag_details', dag_id=dag_id) }}",
             method: "GET",
+            headers: { "X-Requested-With": "XMLHttpRequest" },
             success: function (data) {
                 $('#dag-runs').html(data);
             },
@@ -36,7 +43,6 @@
         });
     }
 
-    const updateIntervalSeconds = 5;
-    setInterval(fetchDagRuns, updateIntervalSeconds * 1000);
+    setInterval(fetchDagRuns, 5000);
 </script>
 {% endblock %}
