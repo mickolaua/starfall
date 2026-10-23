@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.3.0...job-viewer-v0.4.0) (2026-10-23)
+
+
+### Features
+
+* **job-viewer:** Updated Admin panel of Job-Viewer ([4e4ba31](https://github.com/mickolaua/starfall/commit/4e4ba31763bfe02fe9eda47809de74e9d4220717))
+
 ## [0.3.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.2.2...job-viewer-v0.3.0) (2026-10-20)
 
 
