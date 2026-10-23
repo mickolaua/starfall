@@ -119,9 +119,13 @@
                             </div>
                             <h5 class="card-title mb-1">{{ current_user.username }}</h5>
                             <p class="text-body-secondary small mb-3">Member since {{ current_user.signup_datetime.strftime('%Y-%m-%d') if current_user.signup_datetime else 'Unknown' }}</p>
-                            <span class="badge {{ 'bg-primary' if current_user.role == 'admin' else 'bg-secondary' }}">
-                                {{ current_user.role | capitalize }}
+                            {% for role_name in current_user.role_names %}
+                            <span class="badge {{ 'bg-primary' if role_name == 'admin' else ('bg-danger' if role_name == 'banned' else 'bg-secondary') }}">
+                                {{ role_name | capitalize }}
                             </span>
+                            {% else %}
+                            <span class="badge bg-secondary">User</span>
+                            {% endfor %}
                         </div>
                     </div>
                 </div>

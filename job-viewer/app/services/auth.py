@@ -15,7 +15,7 @@ def role_required(role):
         def decorated_function(*args, **kwargs):
             if not current_user.is_authenticated:
                 return redirect(url_for("login", next=request.url))
-            if current_user.role != role:
+            if not current_user.has_role(role):
                 flash("You do not have permission to access this page.")
                 return redirect(url_for("index"))
             return f(*args, **kwargs)

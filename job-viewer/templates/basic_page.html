@@ -68,6 +68,9 @@
                         <li class="nav-item">
                             <a class="nav-link" href="/about">About</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('api_docs.swagger_ui') }}">API reference</a>
+                        </li>
                     </ul>
 
                     <form class="d-flex" role="search">
@@ -83,9 +86,11 @@
                         <li class="nav-item">
                             <a class="nav-link" href="/login" class="btn btn-primary">Login</a>
                         </li>
+                        {% if allow_self_registration %}
                         <li class="nav-item">
                             <a class="nav-link" href="/signup" class="btn btn-primary">Sign-Up</a>
                         </li>
+                        {% endif %}
                     </ul>
                     {% endif %}
                     <button type="button" class="btn btn-outline-secondary ms-2" id="themeToggle"

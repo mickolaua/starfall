@@ -42,14 +42,21 @@ def create_app(config_object=Config):
     bootstrap.init_app(app)
     babel.init_app(app)
 
-    from .models import Job, User  # noqa: F401 — register models with SQLAlchemy
+    from .models import Job, Setting, User  # noqa: F401 — register models with SQLAlchemy
+    from .models.role import Permission, Role, RolePermission, UserRole  # noqa: F401
     from .services.auth import load_user_from_request
+    from .services.rbac import ensure_default_roles_and_permissions
+    from .services.settings import allow_self_registration
 
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
 
     login_manager.request_loader(load_user_from_request)
+
+    @app.context_processor
+    def inject_site_settings():
+        return {"allow_self_registration": allow_self_registration()}
 
     from .blueprints import register_blueprints
 
@@ -59,5 +66,6 @@ def create_app(config_object=Config):
     # Tables for brand-new DBs; column evolution via Flask-Migrate (flask db upgrade).
     with app.app_context():
         db.create_all()
+        ensure_default_roles_and_permissions()
 
     return app

@@ -7,6 +7,7 @@ from ..compat import url_for
 from ..extensions import db
 from ..models import User
 from ..services.auth import safe_next_url
+from ..services.settings import allow_self_registration
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -33,6 +34,10 @@ def login():
 
 @auth_bp.route("/signup", methods=["GET", "POST"])
 def signup():
+    if not allow_self_registration():
+        # flash("Self-registration is currently disabled. Contact an administrator.")
+        return redirect(url_for("login"))
+
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
@@ -42,6 +47,8 @@ def signup():
             new_user = User(username=username)
             new_user.set_password(password)
             db.session.add(new_user)
+            db.session.flush()
+            new_user.set_roles(["user"])
             db.session.commit()
             flash("Registration successful! You can now log in.")
             return redirect(url_for("login"))

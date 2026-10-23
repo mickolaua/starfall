@@ -12,6 +12,7 @@ from flask import (
     send_from_directory,
 )
 from flask_login import current_user, login_required
+from sqlalchemy.orm import joinedload
 
 from ..compat import url_for
 from ..constants import (
@@ -29,6 +30,10 @@ from ..services.prefect import (
     normalize_flow_run_for_ui,
     prefect_headers,
     prefect_url,
+)
+from ..services.settings import (
+    allow_self_registration,
+    set_allow_self_registration,
 )
 
 pages_bp = Blueprint("pages", __name__)
@@ -53,53 +58,94 @@ def user_page():
 @pages_bp.route("/admin", methods=["GET", "POST"])
 @role_required("admin")
 def admin():
-    users = User.query.order_by("username").all()
-
     if request.method == "POST":
-        user_id = request.form.get("user_id")
-        action = request.form.get("action")
+        action = (request.form.get("action") or "").strip()
 
+        if action == "set_registration":
+            enabled = request.form.get("enabled") in {"on", "true", "1", "yes"}
+            set_allow_self_registration(enabled)
+            return redirect(url_for("admin"))
+
+        if action == "create_user":
+            username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+            role = (request.form.get("role") or "user").strip().lower()
+            if role not in {"user", "admin"}:
+                role = "user"
+            if not username or not password:
+                flash("Username and password are required.", "danger")
+            elif User.query.filter_by(username=username).first():
+                flash(f"Username “{username}” already exists.", "danger")
+            else:
+                new_user = User(username=username)
+                new_user.set_password(password)
+                db.session.add(new_user)
+                db.session.flush()
+                new_user.set_roles([role])
+                db.session.commit()
+                flash(f"User {username} created ({role}).")
+            return redirect(url_for("admin"))
+
+        user_id = request.form.get("user_id")
         if user_id:
             user = User.query.get(user_id)
-
-            if action == "remove":
-                if user.role != "admin":
+            if user is None:
+                flash("User not found.", "danger")
+            elif action == "remove":
+                if user.id == current_user.id:
+                    flash("You cannot remove yourself!", "danger")
+                elif user.is_admin():
+                    flash(f"User {user.username} is admin and can not be removed")
+                else:
                     db.session.delete(user)
                     flash(f"User {user.username} removed successfully.")
-                else:
-                    flash(f"User {user.username} is admin and can not be removed")
             elif action == "ban":
                 if user.id == current_user.id:
                     flash("You cannot ban yourself!", "danger")
-                elif user.role == "admin":
+                elif user.is_admin():
                     flash(f"User {user.username} is admin and can not be banned")
                 else:
-                    user.role = "banned"
+                    user.set_roles(["banned"])
                     flash(f"User {user.username} banned successfully.")
             elif action == "change_role":
-                new_role = request.form.get("new_role")
-                if user.role == "admin":
+                new_role = (request.form.get("new_role") or "").strip().lower()
+                if user.is_admin():
                     flash(f"User {user.username} is admin and can not be downshifted")
+                elif new_role not in {"user", "admin", "banned"}:
+                    flash("Invalid role.", "danger")
                 else:
-                    user.role = new_role
+                    user.set_roles([new_role])
                     flash(f"User {user.username} role changed to {new_role}.")
             elif action == "elevate_to_admin":
-                if user.role == "admin":
+                if user.is_admin():
                     flash(f"User {user.username} is already an admin.")
                 else:
-                    user.role = "admin"
+                    user.set_roles(["admin"])
                     flash(f"User {user.username} elevated to admin.")
             elif action == "unban":
-                if user.id == current_user.id:
-                    flash("You cannot unban yourself!", "danger")
+                if not user.is_banned():
+                    flash(f"User {user.username} is not banned.")
                 else:
-                    user.role = "user"
+                    user.set_roles(["user"])
                     flash(f"User {user.username} unbanned successfully.")
 
             db.session.commit()
             return redirect(url_for("admin"))
 
-    return render_template("admin.html", users=users, current_user=current_user)
+    query = (request.args.get("q") or "").strip()
+    base = User.query.options(joinedload(User.jobs), joinedload(User.roles))
+    if query:
+        pattern = f"%{query}%"
+        base = base.filter(User.username.ilike(pattern))
+    users = base.order_by(User.username).all()
+
+    return render_template(
+        "admin.html",
+        users=users,
+        current_user=current_user,
+        query=query,
+        registration_open=allow_self_registration(),
+    )
 
 
 @pages_bp.route("/dag")
