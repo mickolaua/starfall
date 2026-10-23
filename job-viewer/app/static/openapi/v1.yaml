@@ -310,6 +310,40 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/jobs/{job_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [Jobs]
+      summary: Thin job status poll
+      description: |
+        Syncs from the current Prefect flow run and returns a compact state payload.
+        Replaces the legacy `/api/dag/{dag_id}/run/{run_id}` poll (that path redirects here).
+      operationId: getJobStatus
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    example: queued
+                  job_id:
+                    type: string
+                  dag_run_id:
+                    type: string
+                    description: Alias of job_id (legacy Airflow field name)
+                  flow_run_id:
+                    type: string
+                    nullable: true
+        "404":
+          $ref: "#/components/responses/Failed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/jobs/{job_id}/retry:
     parameters:
       - $ref: "#/components/parameters/JobId"

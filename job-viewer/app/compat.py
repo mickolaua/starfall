@@ -19,6 +19,7 @@ ENDPOINT_ALIASES = {
     "signup": "auth.signup",
     "logout": "auth.logout",
     "get_dag_run_details_ajax": "api_status.get_dag_run_details_ajax",
+    "get_job_status": "api_v1.get_job_status",
     "get_user_submitions_ajax": "api_status.get_user_submitions_ajax",
     "post_submit": "api_status.post_submit",
     "update_profile": "api_status.update_profile",

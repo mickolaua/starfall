@@ -1,12 +1,49 @@
 {% extends "basic_page.html" %}
 
 {% block content %}
-    <h1>Flow Run Details</h1>
-    {# Airflow (legacy): <h1>DAG Run Details</h1> #}
-    <h2>Deployment: {{ dag_run['dag_id'] }}</h2>
-    <p>Execution Date: {{ dag_run['execution_date'] }}</p>
-    <p>Status: {{ dag_run['state'] }}</p>
-    <p>Start Date: {{ dag_run['start_date'] }}</p>
-    <p>End Date: {{ dag_run['end_date'] }}</p>
-    <a href="{{ url_for('dag_details', dag_id=dag_run['dag_id']) }}">Back to Flow Runs</a>
+<div class="container py-5" style="max-width: 800px;">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{{ url_for('admin') }}">Admin</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('dag') }}">Prefect</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('dag_details', dag_id=dag_run['dag_id']) }}">Runs</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Details</li>
+        </ol>
+    </nav>
+
+    <h1 class="h3 mb-1">Flow run</h1>
+    <p class="text-body-secondary font-monospace small mb-4">{{ dag_run['dag_run_id'] }}</p>
+
+    {% if error %}
+    <div class="alert alert-warning" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Deployment</dt>
+                <dd class="col-sm-8 font-monospace small">{{ dag_run['dag_id'] }}</dd>
+                <dt class="col-sm-4">State</dt>
+                <dd class="col-sm-8">
+                    {% set state = (dag_run['state'] or 'unknown')|string|lower %}
+                    <span class="badge
+                        {% if state in ['completed', 'success', 'succeeded'] %}text-bg-success
+                        {% elif state in ['failed', 'crashed', 'cancelled'] %}text-bg-danger
+                        {% elif state in ['running', 'pending', 'scheduled'] %}text-bg-primary
+                        {% else %}text-bg-secondary{% endif %}">
+                        {{ dag_run['state'] or 'UNKNOWN' }}
+                    </span>
+                </dd>
+                <dt class="col-sm-4">Execution date</dt>
+                <dd class="col-sm-8">{{ dag_run['execution_date'] or '—' }}</dd>
+                <dt class="col-sm-4">Start</dt>
+                <dd class="col-sm-8">{{ dag_run['start_date'] or '—' }}</dd>
+                <dt class="col-sm-4">End</dt>
+                <dd class="col-sm-8">{{ dag_run['end_date'] or '—' }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <a href="{{ url_for('dag_details', dag_id=dag_run['dag_id']) }}" class="btn btn-outline-secondary btn-sm">Back to flow runs</a>
+</div>
 {% endblock %}
