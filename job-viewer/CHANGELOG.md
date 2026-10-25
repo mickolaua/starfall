@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.4.0...job-viewer-v0.5.0) (2026-10-23)
+
+
+### Features
+
+* **job-viewer:** move Prefect admin UI to /admin/prefect and improve nav ([8f601de](https://github.com/mickolaua/starfall/commit/8f601de7487ab2881edf7bed21b178995005c804))
+
 ## [0.4.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.3.0...job-viewer-v0.4.0) (2026-10-23)
 
 
