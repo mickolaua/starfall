@@ -1,27 +1,72 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Job Viewer API — Swagger</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
-    <style>
-        body { margin: 0; }
-        .swagger-ui .topbar { display: none; }
-    </style>
-</head>
-<body>
-    <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
-    <script>
-        window.onload = () => {
-            window.ui = SwaggerUIBundle({
-                url: "/api/openapi.yaml",
-                dom_id: "#swagger-ui",
-                deepLinking: true,
-                persistAuthorization: true,
-            });
-        };
-    </script>
-</body>
-</html>
+{% extends "basic_page.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" nonce="{{ csp_nonce() }}">
+
+<script nonce="{{ csp_nonce() }}">
+    (function () {
+        var DARK_ID = "swagger-dark-theme";
+        var DARK_URL = "https://cdn.jsdelivr.net/gh/Itz-fork/Fastapi-Swagger-UI-Dark/assets/swagger_ui_dark.min.css";
+        var nonce = document.currentScript.nonce;
+
+        function isDark() {
+            try { return localStorage.getItem("theme") === "dark"; }
+            catch (e) { return false; }
+        }
+
+        function applyTheme() {
+            var link = document.getElementById(DARK_ID);
+            if (isDark() && !link) {
+                link = document.createElement("link");
+                link.id = DARK_ID;
+                link.rel = "stylesheet";
+                link.href = DARK_URL;
+                link.nonce = nonce;
+                document.head.appendChild(link);
+            } else if (!isDark() && link) {
+                link.remove();
+            }
+        }
+
+        // Same-tab changes: the native "storage" event doesn't fire here,
+        // so wrap setItem/removeItem and re-apply when the theme key changes.
+        try {
+            var origSet = Storage.prototype.setItem;
+            var origRemove = Storage.prototype.removeItem;
+
+            Storage.prototype.setItem = function (key, value) {
+                origSet.apply(this, arguments);
+                if (this === window.localStorage && key === "theme") applyTheme();
+            };
+            Storage.prototype.removeItem = function (key) {
+                origRemove.apply(this, arguments);
+                if (this === window.localStorage && key === "theme") applyTheme();
+            };
+        } catch (e) { /* storage unavailable */ }
+
+        // Changes from other tabs
+        window.addEventListener("storage", function (e) {
+            if (e.key === "theme" || e.key === null) applyTheme();
+        });
+
+        applyTheme();
+    })();
+</script>
+{% endblock %}
+
+{% block content %}
+<div id="swagger-ui"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin
+    nonce="{{ csp_nonce() }}"></script>
+<script nonce="{{ csp_nonce() }}">
+    window.ui = SwaggerUIBundle({
+        url: "/api/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        persistAuthorization: true
+    });
+</script>
+{% endblock %}

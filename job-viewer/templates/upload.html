@@ -1,7 +1,7 @@
 {% extends "basic_page.html" %}
 
-{% block content %}
-<style>
+{% block styles %}
+<style nonce="{{ csp_nonce() }}">
     .hidden {
         display: none;
     }
@@ -15,7 +15,9 @@
         min-height: 1.25rem;
     }
 </style>
+{% endblock %}
 
+{% block content %}
 <div class="container-xxl mt-4 mb-5">
     <h5 class="step-header mb-3"><strong>1. Select images</strong></h5>
     <p class="text-body-secondary mb-3" id="headerMessageOnSumbitFiles"></p>
@@ -270,7 +272,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="text/javascript">
+<script type="text/javascript" nonce="{{ csp_nonce() }}">
     const MAX_TOTAL_SIZE = {{ max_total_size }};
     const NUM_PATTERN = /^[+-]?\d+(\.\d+)?$/;
     const IS_ADMIN = {{ 'true' if current_user.is_admin() else 'false' }};

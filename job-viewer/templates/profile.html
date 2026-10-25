@@ -1,7 +1,7 @@
 {% extends "basic_page.html" %}
 
 {% block styles %}
-<style>
+<style nonce="{{ csp_nonce() }}">
     .profile-container {
         max-width: 1000px;
     }
@@ -238,7 +238,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     $(document).ready(function() {
         const userId = "{{ current_user.id }}";
         const resultsUrl = `/user/${userId}/submissions`;

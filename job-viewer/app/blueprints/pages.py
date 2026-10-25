@@ -12,7 +12,8 @@ from flask import (
     send_from_directory,
 )
 from flask_login import current_user, login_required
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from ..compat import url_for
 from ..constants import (
@@ -23,7 +24,7 @@ from ..constants import (
     TELESCOPES,
 )
 from ..extensions import db
-from ..models import User
+from ..models import Job, User
 from ..services.auth import role_required
 from ..services.jobs import owned_job, store_uploaded_frames
 from ..services.prefect import (
@@ -133,15 +134,40 @@ def admin():
             return redirect(url_for("admin"))
 
     query = (request.args.get("q") or "").strip()
-    base = User.query.options(joinedload(User.jobs), joinedload(User.roles))
+    try:
+        page = max(1, int(request.args.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+    per_page = 50
+
+    # selectinload overrides Role's lazy="joined" so LIMIT/OFFSET pagination
+    # counts users, not user×role rows.
+    base = User.query.options(selectinload(User.roles))
     if query:
         pattern = f"%{query}%"
         base = base.filter(User.username.ilike(pattern))
-    users = base.order_by(User.username).all()
+    base = base.order_by(User.username)
+
+    pagination = base.paginate(page=page, per_page=per_page, error_out=False)
+    users = list(pagination.items)
+
+    job_counts: dict[int, int] = {}
+    if users:
+        user_ids = [u.id for u in users]
+        rows = (
+            db.session.query(Job.user_id, func.count(Job.id))
+            .filter(Job.user_id.in_(user_ids))
+            .group_by(Job.user_id)
+            .all()
+        )
+        job_counts = {int(uid): int(cnt) for uid, cnt in rows}
+    for user in users:
+        user.job_count = job_counts.get(user.id, 0)
 
     return render_template(
         "admin.html",
         users=users,
+        pagination=pagination,
         current_user=current_user,
         query=query,
         registration_open=allow_self_registration(),
