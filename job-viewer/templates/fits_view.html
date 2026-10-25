@@ -1,7 +1,7 @@
 {% extends "basic_page.html" %}
 
 {% block styles %}
-<style>
+<style nonce="{{ csp_nonce() }}">
     .viewer-shell {
         max-width: 1400px;
     }
@@ -203,8 +203,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
-<script>
+<script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js" nonce="{{ csp_nonce() }}"></script>
+<script nonce="{{ csp_nonce() }}">
 (function () {
     const jobId = {{ job_id | tojson }};
     const filename = {{ filename | tojson }};

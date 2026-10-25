@@ -1,9 +1,9 @@
 {% extends "basic_page.html" %}
 
 {% block styles %}
-<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9allinone.css') }}">
-<style>
+<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9.css') }}" nonce="{{ csp_nonce() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='js/js9/js9allinone.css') }}" nonce="{{ csp_nonce() }}">
+<style nonce="{{ csp_nonce() }}">
     #js9-container {
         width: 100%;
         height: calc(100vh - 150px);
@@ -33,13 +33,13 @@
         gap: 1rem;
     }
 </style>
-<script src="{{ url_for('static', filename='js/js9/js/jquery-3.5.0.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js/fabric-v5.2.1.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js/dhtmlwindow.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js9support.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js9.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js9prefs.js') }}"></script>
-<script src="{{ url_for('static', filename='js/js9/js9plugins.js') }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js/jquery-3.5.0.min.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js/fabric-v5.2.1.min.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js/dhtmlwindow.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9support.min.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9.min.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9prefs.js') }}" nonce="{{ csp_nonce() }}"></script>
+<script src="{{ url_for('static', filename='js/js9/js9plugins.js') }}" nonce="{{ csp_nonce() }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -77,7 +77,7 @@
 
 {% block scripts %}
 
-<script>
+<script nonce="{{ csp_nonce() }}">
     $(document).ready(async function() {
         const job_id = "{{ job_id }}";
         const filename = "{{ filename }}";
