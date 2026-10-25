@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.5.0...job-viewer-v0.6.0) (2026-10-25)
+
+
+### Features
+
+* **job-viewer:** add CSRF, rate limiting, CSP, and admin list optimizations ([4edade1](https://github.com/mickolaua/starfall/commit/4edade1817dee219f14651a437a78886fafa479c))
+
 ## [0.5.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.4.0...job-viewer-v0.5.0) (2026-10-23)
 
 
