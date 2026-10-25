@@ -16,8 +16,12 @@
         <a href="{{ url_for('admin') }}" class="btn btn-outline-secondary btn-sm">Back to Admin</a>
     </div>
 
-    {% if error %}
-    <div class="alert alert-warning" role="alert">{{ error }}</div>
+    {% if config['DEBUG'] %}
+        {% if error %}
+            <div class="alert alert-warning" role="alert">{{ error }}</div>
+        {% endif %}
+    {% else %}
+        <div class="alert alert-warning" role="alert">An error occured when connecting to Prefect</div>
     {% endif %}
 
     <div class="card">

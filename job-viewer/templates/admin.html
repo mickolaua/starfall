@@ -1,7 +1,7 @@
 {% extends "basic_page.html" %}
 
 {% block styles %}
-<style>
+<style nonce="{{ csp_nonce() }}">
     .admin-container {
         max-width: 1100px;
     }
@@ -53,8 +53,7 @@
                 <div class="form-check form-switch m-0">
                     <input class="form-check-input" type="checkbox" role="switch"
                            id="registrationToggle" name="enabled" value="on"
-                           {% if registration_open %}checked{% endif %}
-                           onchange="this.form.submit()">
+                           {% if registration_open %}checked{% endif %}>
                     <label class="form-check-label" for="registrationToggle">
                         Allow self-registration
                     </label>
@@ -112,7 +111,9 @@
     <div class="card">
         <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-                <h2 class="h5 mb-0">Users <span class="text-body-secondary fw-normal">({{ users|length }})</span></h2>
+                <h2 class="h5 mb-0">Users
+                    <span class="text-body-secondary fw-normal">({{ pagination.total }})</span>
+                </h2>
                 <form method="GET" class="d-flex gap-2" role="search">
                     <input type="search" class="form-control form-control-sm" name="q"
                            value="{{ query or '' }}" placeholder="Filter username…" aria-label="Filter users">
@@ -151,7 +152,7 @@
                                 <span class="badge role-badge-user">user</span>
                                 {% endfor %}
                             </td>
-                            <td>{{ user.jobs|length }}</td>
+                            <td>{{ user.job_count }}</td>
                             <td class="small text-body-secondary">
                                 {{ user.signup_datetime.strftime('%Y-%m-%d') if user.signup_datetime else '—' }}
                             </td>
@@ -177,8 +178,8 @@
                                         <input type="hidden" name="user_id" value="{{ user.id }}">
                                         <button type="submit" name="action" value="elevate_to_admin" class="btn btn-outline-primary">Elevate</button>
                                     </form>
-                                    <form method="POST" class="d-inline"
-                                          onsubmit="return confirm('Remove user {{ user.username }}? This cannot be undone.');">
+                                    <form method="POST" class="d-inline js-confirm-submit"
+                                          data-confirm="Remove user {{ user.username }}? This cannot be undone.">
                                         <input type="hidden" name="user_id" value="{{ user.id }}">
                                         <button type="submit" name="action" value="remove" class="btn btn-outline-danger">Remove</button>
                                     </form>
@@ -194,7 +195,56 @@
                     </tbody>
                 </table>
             </div>
+
+            {% if pagination.pages > 1 %}
+            <nav class="mt-3" aria-label="Users pagination">
+                <ul class="pagination pagination-sm mb-0 justify-content-end">
+                    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                        <a class="page-link"
+                           href="{% if pagination.has_prev %}{{ url_for('admin', page=pagination.prev_num, q=query or none) }}{% else %}#{% endif %}"
+                           {% if not pagination.has_prev %}tabindex="-1" aria-disabled="true"{% endif %}>Previous</a>
+                    </li>
+                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}"
+                            {% if p == pagination.page %}aria-current="page"{% endif %}>
+                            <a class="page-link" href="{{ url_for('admin', page=p, q=query or none) }}">{{ p }}</a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                        {% endif %}
+                    {% endfor %}
+                    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                        <a class="page-link"
+                           href="{% if pagination.has_next %}{{ url_for('admin', page=pagination.next_num, q=query or none) }}{% else %}#{% endif %}"
+                           {% if not pagination.has_next %}tabindex="-1" aria-disabled="true"{% endif %}>Next</a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+    (function () {
+        var toggle = document.getElementById("registrationToggle");
+        if (toggle && toggle.form) {
+            toggle.addEventListener("change", function () {
+                toggle.form.submit();
+            });
+        }
+
+        document.querySelectorAll("form.js-confirm-submit").forEach(function (form) {
+            form.addEventListener("submit", function (event) {
+                var message = form.getAttribute("data-confirm");
+                if (message && !window.confirm(message)) {
+                    event.preventDefault();
+                }
+            });
+        });
+    })();
+</script>
 {% endblock %}
