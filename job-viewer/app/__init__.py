@@ -3,8 +3,9 @@
 import os
 import secrets
 from pathlib import Path
+import logging.config
 
-from flask import Flask
+from flask import Flask, url_for
 
 try:
     from config import Config
@@ -12,7 +13,9 @@ except ImportError:  # loaded as a nested package (e.g. job-viewer.app)
     from ..config import Config
 
 from .compat import install_template_url_for
-from .extensions import babel, bootstrap, db, login_manager, migrate
+from .extensions import babel, bootstrap, db, login_manager, migrate, talisman, csrf
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 
 def create_app(config_object=Config):
@@ -29,10 +32,11 @@ def create_app(config_object=Config):
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     os.makedirs(app.config["RESULT_FOLDER"], exist_ok=True)
 
-    app.secret_key = app.config.get("SECRET_KEY") or secrets.token_hex(16)
+    app.secret_key = app.config.get("SECRET_KEY")
     if not app.config.get("SECRET_KEY"):
-        app.logger.warning(
-            "SECRET_KEY is not set; using an ephemeral key (sessions reset on restart)."
+        raise ValueError(
+            "No secret key set.\nTip: set SECRET_KEY environmental variable and "
+            "restart the application."
         )
 
     db.init_app(app)
@@ -41,6 +45,53 @@ def create_app(config_object=Config):
     login_manager.login_view = "auth.login"
     bootstrap.init_app(app)
     babel.init_app(app)
+    # csrf.init_app(app)
+
+    talisman.init_app(
+        app,
+        force_https=bool(app.config["TALISMAN_ENABLE_STRICT_HTTPS"]),
+        content_security_policy= {
+            'default-src': "'self'",
+            'font-src': [
+                "'self'",
+                #"'{nonce}'",          # Formats the nonce string safely into the header mapping
+                # "'unsafe-inline'",    # Fallback to allow Swagger's self-generated script-src-elem threads
+                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
+                "https://fonts.googleapis.com",
+                "https://fonts.gstatic.com"    # Whitelists Google Fonts CSS API
+            ],
+            'script-src': [
+                "'self'",
+                "'unsafe-hashes'",
+                #"'{nonce}'",          # Formats the nonce string safely into the header mapping
+                # "'unsafe-inline'",    # Fallback to allow Swagger's self-generated script-src-elem threads
+                # "'unsafe-eval'",       # Stops dynamic runtime execution blocks from failing
+                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
+                "https://unpkg.com",
+            ],
+            'style-src': [
+                "'self'",
+                "'unsafe-hashes'",
+                #"'{nonce}'",
+                # "'unsafe-inline'",     # Required for Swagger CSS stylesheet injection
+                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
+                "https://fonts.googleapis.com",    # Whitelists Google Fonts CSS API
+                "https://unpkg.com",
+            ],
+            'img-src': ["'self'", "data:"]
+        },
+        content_security_policy_nonce_in=['script-src', 'style-src', 'font-src'],
+        # TODO: CSP violations reporting
+        # content_security_policy_report_only=bool(app.config["CSP_REPORT_ONLY"]),
+        # content_security_policy_report_uri=app.config["CSP_REPORT_ONLY"]"/api/v1/csp-report"
+    )
+
+    limiter = Limiter(
+        get_remote_address,
+        default_limits=app.config["LIMITER_DEFAULT_LIMITS"],
+        storage_uri=app.config["LIMITER_STORAGE_URI"],
+    )
+    limiter.init_app(app)
 
     from .models import Job, Setting, User  # noqa: F401 — register models with SQLAlchemy
     from .models.role import Permission, Role, RolePermission, UserRole  # noqa: F401
@@ -67,5 +118,11 @@ def create_app(config_object=Config):
     with app.app_context():
         db.create_all()
         ensure_default_roles_and_permissions()
+
+    # Set up logging
+    log_folder = Path(app.config["LOGS_FOLDER"]).resolve()
+    log_folder.mkdir(parents=True, exist_ok=True)
+    ini_path = log_folder / app.config["LOGS_CONFIG_FILENAME"]
+    # logging.config.fileConfig(ini_path, disable_existing_loggers=False)
 
     return app

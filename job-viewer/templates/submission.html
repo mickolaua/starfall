@@ -1,7 +1,7 @@
 {% extends "basic_page.html" %}
 
 {% block styles %}
-<style>
+<style nonce="{{ csp_nonce() }}">
     .job-results {
         max-width: 1100px;
     }
@@ -171,7 +171,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     const statusUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};
     const resultsUrl = {{ url_for('get_job_results', job_id=subid) | tojson }};
     const renameUrl = {{ ('/api/v1/jobs/' ~ subid) | tojson }};

@@ -28,7 +28,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     function fetchDagRuns() {
         $.ajax({
             url: "{{ url_for('dag_details', dag_id=dag_id) }}",

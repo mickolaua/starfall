@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user
 
@@ -6,6 +8,7 @@ from ...services.auth import (
     api_login_required,
     revoke_user_api_token,
     rotate_user_api_token,
+    require_callback_token
 )
 from ...services.jobs import (
     accessible_job,
@@ -22,6 +25,7 @@ from ...services.jobs import (
     sync_job_status_from_prefect,
 )
 
+logger = logging.getLogger("root")
 api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 
@@ -197,3 +201,24 @@ def retry_job_route(job_id: str):
     force = bool(data.get("force") or request.args.get("force"))
     body, status = retry_job(current_user, job_id, force=force)
     return jsonify(body), status
+
+
+@api_v1_bp.route('/csp-report', methods=['POST'])
+def handle_csp_report():
+    try:
+        # require_callback_token()
+        # force=True forces parsing even with 'application/csp-report' content-type
+        report_data = request.get_json(force=True)
+        
+        # Grab the target details from the browser payload structure
+        csp_report = report_data.get('csp-report', {})
+        
+        logger.warning(
+            f"CSP Violation: Blocked '{csp_report.get('blocked-uri')}' "
+            f"due to directive '{csp_report.get('violated-directive')}' "
+            f"on page '{csp_report.get('document-uri')}'"
+        )
+    except Exception as e:
+        logger.error(f"Failed to parse incoming browser CSP payload: {e}")
+        
+    return jsonify({"status": "received"}), 204
