@@ -6,25 +6,47 @@
 <script nonce="{{ csp_nonce() }}">
     (function () {
         var DARK_ID = "swagger-dark-theme";
+        var OVERRIDE_ID = "swagger-dark-overrides";
         var DARK_URL = "https://cdn.jsdelivr.net/gh/Itz-fork/Fastapi-Swagger-UI-Dark/assets/swagger_ui_dark.min.css";
+        var OVERRIDE_URL = {{ url_for('static', filename='css/swagger-dark-overrides.css')|tojson }};
         var nonce = document.currentScript.nonce;
 
         function isDark() {
+            var attr = document.documentElement.getAttribute("data-bs-theme");
+            if (attr === "dark" || attr === "light") {
+                return attr === "dark";
+            }
             try { return localStorage.getItem("theme") === "dark"; }
             catch (e) { return false; }
         }
 
-        function applyTheme() {
-            var link = document.getElementById(DARK_ID);
-            if (isDark() && !link) {
+        function ensureLink(id, href) {
+            var link = document.getElementById(id);
+            if (!link) {
                 link = document.createElement("link");
-                link.id = DARK_ID;
+                link.id = id;
                 link.rel = "stylesheet";
-                link.href = DARK_URL;
+                link.href = href;
                 link.nonce = nonce;
                 document.head.appendChild(link);
-            } else if (!isDark() && link) {
+            }
+            return link;
+        }
+
+        function removeLink(id) {
+            var link = document.getElementById(id);
+            if (link) {
                 link.remove();
+            }
+        }
+
+        function applyTheme() {
+            if (isDark()) {
+                ensureLink(DARK_ID, DARK_URL);
+                ensureLink(OVERRIDE_ID, OVERRIDE_URL);
+            } else {
+                removeLink(OVERRIDE_ID);
+                removeLink(DARK_ID);
             }
         }
 
