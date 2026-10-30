@@ -1,11 +1,9 @@
 """MVC Flask application factory for job-viewer."""
 
 import os
-import secrets
 from pathlib import Path
-import logging.config
 
-from flask import Flask, url_for
+from flask import Flask
 
 try:
     from config import Config
@@ -13,9 +11,7 @@ except ImportError:  # loaded as a nested package (e.g. job-viewer.app)
     from ..config import Config
 
 from .compat import install_template_url_for
-from .extensions import babel, bootstrap, db, login_manager, migrate, talisman, csrf
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from .extensions import babel, bootstrap, csrf, db, limiter, login_manager, migrate, talisman
 
 
 def create_app(config_object=Config):
@@ -45,59 +41,46 @@ def create_app(config_object=Config):
     login_manager.login_view = "auth.login"
     bootstrap.init_app(app)
     babel.init_app(app)
-    # csrf.init_app(app)
+    csrf.init_app(app)
 
-    talisman.init_app(
-        app,
-        force_https=bool(app.config["TALISMAN_ENABLE_STRICT_HTTPS"]),
-        content_security_policy= {
-            'default-src': "'self'",
-            'font-src': [
-                "'self'",
-                #"'{nonce}'",          # Formats the nonce string safely into the header mapping
-                # "'unsafe-inline'",    # Fallback to allow Swagger's self-generated script-src-elem threads
-                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
-                "https://fonts.googleapis.com",
-                "https://fonts.gstatic.com"    # Whitelists Google Fonts CSS API
-            ],
-            'script-src': [
-                "'self'",
-                "'unsafe-hashes'",
-                #"'{nonce}'",          # Formats the nonce string safely into the header mapping
-                # "'unsafe-inline'",    # Fallback to allow Swagger's self-generated script-src-elem threads
-                # "'unsafe-eval'",       # Stops dynamic runtime execution blocks from failing
-                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
-                "https://unpkg.com",
-            ],
-            'style-src': [
-                "'self'",
-                "'unsafe-hashes'",
-                #"'{nonce}'",
-                # "'unsafe-inline'",     # Required for Swagger CSS stylesheet injection
-                "https://cdn.jsdelivr.net",      # Whitelists Bootstrap Icons CSS CDN
-                "https://fonts.googleapis.com",    # Whitelists Google Fonts CSS API
-                "https://unpkg.com",
-            ],
-            'img-src': ["'self'", "data:"]
-        },
-        content_security_policy_nonce_in=['script-src', 'style-src', 'font-src'],
-        # TODO: CSP violations reporting
-        # content_security_policy_report_only=bool(app.config["CSP_REPORT_ONLY"]),
-        # content_security_policy_report_uri=app.config["CSP_REPORT_ONLY"]"/api/v1/csp-report"
-    )
+    talisman_kwargs = {
+        "force_https": bool(app.config.get("TALISMAN_FORCE_HTTPS")),
+        "content_security_policy": app.config.get("TALISMAN_CONTENT_SECURITY_POLICY"),
+        "content_security_policy_nonce_in": app.config.get(
+            "TALISMAN_CONTENT_SECURITY_POLICY_NONCE_IN"
+        ),
+        "content_security_policy_report_only": bool(
+            app.config.get("TALISMAN_CSP_REPORT_ONLY")
+        ),
+        "frame_options": app.config.get("TALISMAN_FRAME_OPTIONS") or "SAMEORIGIN",
+    }
+    report_uri = (app.config.get("TALISMAN_CSP_REPORT_URI") or "").strip()
+    if report_uri:
+        talisman_kwargs["content_security_policy_report_uri"] = report_uri
+    hsts = (app.config.get("TALISMAN_STRICT_TRANSPORT_SECURITY") or "").strip()
+    if hsts:
+        talisman_kwargs["strict_transport_security"] = True
+        # Talisman uses force_https + defaults; custom max-age via config string
+        # is applied when force_https is on. Keep explicit only if provided.
+        if hsts.startswith("max-age="):
+            try:
+                talisman_kwargs["strict_transport_security_max_age"] = int(
+                    hsts.split(";")[0].split("=", 1)[1].strip()
+                )
+            except (IndexError, ValueError):
+                pass
 
-    limiter = Limiter(
-        get_remote_address,
-        default_limits=app.config["LIMITER_DEFAULT_LIMITS"],
-        storage_uri=app.config["LIMITER_STORAGE_URI"],
-    )
+    talisman.init_app(app, **talisman_kwargs)
+
+    app.config["RATELIMIT_STORAGE_URI"] = app.config["LIMITER_STORAGE_URI"]
     limiter.init_app(app)
+    app.extensions["limiter"] = limiter
 
     from .models import Job, Setting, User  # noqa: F401 — register models with SQLAlchemy
     from .models.role import Permission, Role, RolePermission, UserRole  # noqa: F401
     from .services.auth import load_user_from_request
     from .services.rbac import ensure_default_roles_and_permissions
-    from .services.settings import allow_self_registration
+    from .services.settings import allow_self_registration, ensure_default_settings
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -114,15 +97,23 @@ def create_app(config_object=Config):
     register_blueprints(app)
     install_template_url_for(app)
 
+    # CSRF: protect HTML forms; exempt token/callback/session AJAX APIs.
+    from .blueprints.api.callbacks import callbacks_bp
+    from .blueprints.api.docs import api_docs_bp
+    from .blueprints.api.jobs import api_jobs_bp
+    from .blueprints.api.status import api_status_bp
+    from .blueprints.api.v1 import api_v1_bp
+
+    for bp in (api_v1_bp, api_jobs_bp, api_status_bp, callbacks_bp, api_docs_bp):
+        csrf.exempt(bp)
+
     # Tables for brand-new DBs; column evolution via Flask-Migrate (flask db upgrade).
     with app.app_context():
         db.create_all()
         ensure_default_roles_and_permissions()
+        ensure_default_settings()
 
-    # Set up logging
     log_folder = Path(app.config["LOGS_FOLDER"]).resolve()
     log_folder.mkdir(parents=True, exist_ok=True)
-    ini_path = log_folder / app.config["LOGS_CONFIG_FILENAME"]
-    # logging.config.fileConfig(ini_path, disable_existing_loggers=False)
 
     return app

@@ -18,6 +18,10 @@
         z-index: 1;
         background-color: var(--bs-tertiary-bg);
     }
+    .admin-role-select {
+        width: auto;
+        min-width: 6.5rem;
+    }
 </style>
 {% endblock %}
 
@@ -49,6 +53,7 @@
                 <code>/signup</code> redirects to login. New accounts can still be created below.
             </p>
             <form method="POST" class="d-flex flex-wrap align-items-center gap-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="set_registration">
                 <div class="form-check form-switch m-0">
                     <input class="form-check-input" type="checkbox" role="switch"
@@ -83,6 +88,7 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Create user</h2>
             <form method="POST" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="create_user">
                 <div class="col-md-4">
                     <label for="newUsername" class="form-label">Username</label>
@@ -160,31 +166,37 @@
                                 {{ user.last_login_datetime.strftime('%Y-%m-%d %H:%M') if user.last_login_datetime else '—' }}
                             </td>
                             <td class="text-end">
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Actions for {{ user.username }}">
-                                    {% if user.is_banned() %}
-                                    <form method="POST" class="d-inline">
+                                {% if user.id == current_user.id %}
+                                <span class="text-body-secondary small">—</span>
+                                {% else %}
+                                <div class="d-inline-flex flex-wrap justify-content-end align-items-center gap-2"
+                                     role="group" aria-label="Actions for {{ user.username }}">
+                                    <form method="POST" class="d-inline-flex align-items-center gap-1">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="user_id" value="{{ user.id }}">
-                                        <button type="submit" name="action" value="unban" class="btn btn-outline-success">Unban</button>
+                                        <input type="hidden" name="action" value="change_role">
+                                        <label class="visually-hidden" for="role-{{ user.id }}">Role</label>
+                                        <select class="form-select form-select-sm admin-role-select"
+                                                id="role-{{ user.id }}" name="new_role">
+                                            {% for role_name in ['user', 'admin', 'banned'] %}
+                                            <option value="{{ role_name }}"
+                                                    {% if user.primary_role_name == role_name %}selected{% endif %}>
+                                                {{ role_name }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-outline-primary">Set role</button>
                                     </form>
-                                    {% elif not user.is_admin() %}
-                                    <form method="POST" class="d-inline">
-                                        <input type="hidden" name="user_id" value="{{ user.id }}">
-                                        <button type="submit" name="action" value="ban" class="btn btn-outline-warning">Ban</button>
-                                    </form>
-                                    {% endif %}
-
                                     {% if not user.is_admin() %}
-                                    <form method="POST" class="d-inline">
-                                        <input type="hidden" name="user_id" value="{{ user.id }}">
-                                        <button type="submit" name="action" value="elevate_to_admin" class="btn btn-outline-primary">Elevate</button>
-                                    </form>
                                     <form method="POST" class="d-inline js-confirm-submit"
                                           data-confirm="Remove user {{ user.username }}? This cannot be undone.">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="user_id" value="{{ user.id }}">
-                                        <button type="submit" name="action" value="remove" class="btn btn-outline-danger">Remove</button>
+                                        <button type="submit" name="action" value="remove" class="btn btn-sm btn-outline-danger">Remove</button>
                                     </form>
                                     {% endif %}
                                 </div>
+                                {% endif %}
                             </td>
                         </tr>
                         {% else %}

@@ -48,3 +48,9 @@ def allow_self_registration() -> bool:
 
 def set_allow_self_registration(enabled: bool) -> None:
     set_bool(ALLOW_SELF_REGISTRATION, enabled)
+
+
+def ensure_default_settings() -> None:
+    """Idempotent seed of required Setting rows (e.g. self-registration flag)."""
+    if get_setting(ALLOW_SELF_REGISTRATION) is None:
+        set_setting(ALLOW_SELF_REGISTRATION, "true")

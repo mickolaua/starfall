@@ -96,39 +96,23 @@ def admin():
                 if user.id == current_user.id:
                     flash("You cannot remove yourself!", "danger")
                 elif user.is_admin():
-                    flash(f"User {user.username} is admin and can not be removed")
+                    flash(
+                        f"User {user.username} is admin and can not be removed. "
+                        "Demote them first.",
+                        "danger",
+                    )
                 else:
                     db.session.delete(user)
                     flash(f"User {user.username} removed successfully.")
-            elif action == "ban":
-                if user.id == current_user.id:
-                    flash("You cannot ban yourself!", "danger")
-                elif user.is_admin():
-                    flash(f"User {user.username} is admin and can not be banned")
-                else:
-                    user.set_roles(["banned"])
-                    flash(f"User {user.username} banned successfully.")
             elif action == "change_role":
                 new_role = (request.form.get("new_role") or "").strip().lower()
-                if user.is_admin():
-                    flash(f"User {user.username} is admin and can not be downshifted")
+                if user.id == current_user.id:
+                    flash("You cannot change your own role.", "danger")
                 elif new_role not in {"user", "admin", "banned"}:
                     flash("Invalid role.", "danger")
                 else:
                     user.set_roles([new_role])
                     flash(f"User {user.username} role changed to {new_role}.")
-            elif action == "elevate_to_admin":
-                if user.is_admin():
-                    flash(f"User {user.username} is already an admin.")
-                else:
-                    user.set_roles(["admin"])
-                    flash(f"User {user.username} elevated to admin.")
-            elif action == "unban":
-                if not user.is_banned():
-                    flash(f"User {user.username} is not banned.")
-                else:
-                    user.set_roles(["user"])
-                    flash(f"User {user.username} unbanned successfully.")
 
             db.session.commit()
             return redirect(url_for("admin"))

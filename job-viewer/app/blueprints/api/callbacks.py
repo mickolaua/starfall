@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from ...extensions import db
+from ...extensions import db, limit_from_config, limiter
 from ...models import Job
 from ...models.job import apply_job_status
 from ...services.auth import require_callback_token
@@ -9,6 +9,7 @@ callbacks_bp = Blueprint("callbacks", __name__)
 
 
 @callbacks_bp.route("/api/jobs/update/<job_id>", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_CALLBACK"))
 def update_job(job_id: str):
     """
     Worker callback to update job status.
@@ -36,6 +37,7 @@ def update_job(job_id: str):
 
 
 @callbacks_bp.route("/api/internal/job-complete", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_CALLBACK"))
 def job_complete():
     """Worker callback: mark a single job successful. Requires callback token."""
     require_callback_token()

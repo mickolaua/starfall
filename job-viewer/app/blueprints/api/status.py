@@ -1,7 +1,7 @@
-from flask import Blueprint, jsonify, redirect, request
+from flask import Blueprint, abort, jsonify, redirect, request
 from flask_login import current_user, login_required
 
-from ...extensions import db
+from ...extensions import db, limit_from_config, limiter
 from ...models import User
 from ...services.auth import api_login_required
 from ...services.jobs import create_prefect_job, list_user_jobs
@@ -10,6 +10,7 @@ api_status_bp = Blueprint("api_status", __name__)
 
 
 @api_status_bp.route("/profile/update", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @login_required
 def update_profile():
     data = request.get_json()
@@ -28,6 +29,7 @@ def update_profile():
 
 
 @api_status_bp.route("/profile/change-password", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @login_required
 def change_password():
     data = request.get_json()
@@ -50,6 +52,7 @@ def change_password():
 
 
 @api_status_bp.route("/api/dag/<dag_id>/run/<run_id>", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def get_dag_run_details_ajax(dag_id: str, run_id: str):
     """Legacy path; redirects to GET /api/v1/jobs/<job_id>/status."""
@@ -57,6 +60,7 @@ def get_dag_run_details_ajax(dag_id: str, run_id: str):
 
 
 @api_status_bp.route("/submit", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def post_submit():
     data = request.get_json(silent=True) or {}
@@ -65,6 +69,7 @@ def post_submit():
 
 
 @api_status_bp.route("/user/<user_id>/submissions", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def get_user_submitions_ajax(user_id: int):
     if int(user_id) != current_user.id and not current_user.is_admin():

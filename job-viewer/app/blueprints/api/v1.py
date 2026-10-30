@@ -3,12 +3,12 @@ import logging
 from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user
 
+from ...extensions import limit_from_config, limiter
 from ...models import Job, User
 from ...services.auth import (
     api_login_required,
     revoke_user_api_token,
     rotate_user_api_token,
-    require_callback_token
 )
 from ...services.jobs import (
     accessible_job,
@@ -30,6 +30,7 @@ api_v1_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 
 @api_v1_bp.route("/auth/token", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def create_or_rotate_token():
     raw = rotate_user_api_token(current_user)
@@ -44,6 +45,7 @@ def create_or_rotate_token():
 
 
 @api_v1_bp.route("/auth/token", methods=["DELETE"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def revoke_token():
     revoke_user_api_token(current_user)
@@ -51,6 +53,7 @@ def revoke_token():
 
 
 @api_v1_bp.route("/auth/token", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def token_status():
     return jsonify(
@@ -62,6 +65,7 @@ def token_status():
 
 
 @api_v1_bp.route("/jobs/upload", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def upload_job_frames():
     lights = request.files.getlist("lights")
@@ -74,12 +78,14 @@ def upload_job_frames():
 
 
 @api_v1_bp.route("/jobs/shell", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def create_empty_job_shell():
     return jsonify(create_job_shell(current_user))
 
 
 @api_v1_bp.route("/jobs/reuse", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def reuse_job_frames():
     data = request.get_json(silent=True) or {}
@@ -98,6 +104,7 @@ def reuse_job_frames():
 
 
 @api_v1_bp.route("/jobs", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def create_job():
     data = request.get_json(silent=True) or {}
@@ -106,6 +113,7 @@ def create_job():
 
 
 @api_v1_bp.route("/jobs", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def list_jobs():
     query = request.args.get("q", "").strip()
@@ -127,6 +135,7 @@ def list_jobs():
 
 
 @api_v1_bp.route("/admin/users", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def list_users_admin():
     if not current_user.is_admin():
@@ -141,6 +150,7 @@ def list_users_admin():
 
 
 @api_v1_bp.route("/jobs/<job_id>/reusable-files", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def reusable_files(job_id: str):
     job = accessible_job(job_id)
@@ -148,6 +158,7 @@ def reusable_files(job_id: str):
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def get_job(job_id: str):
     body, status = get_job_status_payload(current_user, job_id)
@@ -155,6 +166,7 @@ def get_job(job_id: str):
 
 
 @api_v1_bp.route("/jobs/<job_id>/status", methods=["GET"])
+@limiter.limit(limit_from_config("LIMITER_API_READ"))
 @api_login_required
 def get_job_status(job_id: str):
     """Thin status poll (replaces legacy /api/dag/.../run/...)."""
@@ -178,6 +190,7 @@ def get_job_status(job_id: str):
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["PATCH"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def patch_job(job_id: str):
     data = request.get_json(silent=True) or {}
@@ -188,6 +201,7 @@ def patch_job(job_id: str):
 
 
 @api_v1_bp.route("/jobs/<job_id>", methods=["DELETE"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def remove_job(job_id: str):
     body, status = delete_job(current_user, job_id)
@@ -195,6 +209,7 @@ def remove_job(job_id: str):
 
 
 @api_v1_bp.route("/jobs/<job_id>/retry", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_API_WRITE"))
 @api_login_required
 def retry_job_route(job_id: str):
     data = request.get_json(silent=True) or {}
@@ -203,22 +218,19 @@ def retry_job_route(job_id: str):
     return jsonify(body), status
 
 
-@api_v1_bp.route('/csp-report', methods=['POST'])
+@api_v1_bp.route("/csp-report", methods=["POST"])
+@limiter.limit(limit_from_config("LIMITER_CSP_REPORT"))
 def handle_csp_report():
     try:
-        # require_callback_token()
-        # force=True forces parsing even with 'application/csp-report' content-type
         report_data = request.get_json(force=True)
-        
-        # Grab the target details from the browser payload structure
-        csp_report = report_data.get('csp-report', {})
-        
+        csp_report = report_data.get("csp-report", {})
         logger.warning(
-            f"CSP Violation: Blocked '{csp_report.get('blocked-uri')}' "
-            f"due to directive '{csp_report.get('violated-directive')}' "
-            f"on page '{csp_report.get('document-uri')}'"
+            "CSP Violation: Blocked '%s' due to directive '%s' on page '%s'",
+            csp_report.get("blocked-uri"),
+            csp_report.get("violated-directive"),
+            csp_report.get("document-uri"),
         )
     except Exception as e:
-        logger.error(f"Failed to parse incoming browser CSP payload: {e}")
-        
+        logger.error("Failed to parse incoming browser CSP payload: %s", e)
+
     return jsonify({"status": "received"}), 204

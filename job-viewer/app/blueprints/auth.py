@@ -4,7 +4,7 @@ from flask import Blueprint, flash, redirect, render_template, request
 from flask_login import login_required, login_user, logout_user
 
 from ..compat import url_for
-from ..extensions import db
+from ..extensions import db, limit_from_config, limiter
 from ..models import User
 from ..services.auth import safe_next_url
 from ..services.settings import allow_self_registration
@@ -13,6 +13,7 @@ auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit(limit_from_config("LIMITER_AUTH"), methods=["POST"])
 def login():
     if request.method == "POST":
         username = request.form["username"]
@@ -33,9 +34,9 @@ def login():
 
 
 @auth_bp.route("/signup", methods=["GET", "POST"])
+@limiter.limit(limit_from_config("LIMITER_AUTH"), methods=["POST"])
 def signup():
     if not allow_self_registration():
-        # flash("Self-registration is currently disabled. Contact an administrator.")
         return redirect(url_for("login"))
 
     if request.method == "POST":
