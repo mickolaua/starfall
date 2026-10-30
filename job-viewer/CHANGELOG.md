@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1](https://github.com/mickolaua/starfall/compare/job-viewer-v0.7.0...job-viewer-v0.7.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **job-viewer:** improve Swagger UI dark theme contrast ([7f89cc3](https://github.com/mickolaua/starfall/commit/7f89cc3d2becc856a9ecf145dff8bd0bfa73d99a))
+
 ## [0.7.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.6.0...job-viewer-v0.7.0) (2026-10-30)
 
 

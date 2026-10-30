@@ -1,6 +1,6 @@
 [project]
 name = "job-viewer"
-version = "0.7.0"
+version = "0.7.1"
 description = "A job viewer for Prefect flows"
 authors = [
     {name = "Your Name",email = "you@example.com"}
