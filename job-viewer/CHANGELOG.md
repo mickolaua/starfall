@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3](https://github.com/mickolaua/starfall/compare/job-viewer-v0.7.2...job-viewer-v0.7.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **job-viewer:** fixed recently found vulnerabilities from dependencies ([d440762](https://github.com/mickolaua/starfall/commit/d44076216ca2da6b601bc1e1a8ac5c1098f1657a))
+
 ## [0.7.2](https://github.com/mickolaua/starfall/compare/job-viewer-v0.7.1...job-viewer-v0.7.2) (2026-10-30)
 
 
