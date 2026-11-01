@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3](https://github.com/mickolaua/starfall/compare/orchestrator-v0.1.2...orchestrator-v0.1.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **orchestrator:** fix critical vulnerability risk from certifi library ([5bf7642](https://github.com/mickolaua/starfall/commit/5bf76424673e90c78031f9faffb3d5a249a0b312))
+
 ## [0.1.2](https://github.com/mickolaua/starfall/compare/orchestrator-v0.1.1...orchestrator-v0.1.2) (2026-10-30)
 
 
