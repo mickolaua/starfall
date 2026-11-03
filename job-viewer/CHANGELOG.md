@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/mickolaua/starfall/compare/job-viewer-v0.7.3...job-viewer-v0.8.0) (2026-11-03)
+
+
+### Features
+
+* **job-viewer:** sumbissions moved from profile page to a dedicated page available from the image headeer ([2091c8b](https://github.com/mickolaua/starfall/commit/2091c8b2aac3a278bc2af7dca3d7e0467c85dbc8))
+
 ## [0.7.3](https://github.com/mickolaua/starfall/compare/job-viewer-v0.7.2...job-viewer-v0.7.3) (2026-11-01)
 
 
