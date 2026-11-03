@@ -5,189 +5,100 @@
     .profile-container {
         max-width: 1000px;
     }
-    .status-badge-SUCCESS { background-color: #198754; color: white; }
-    .status-badge-FAILED { background-color: #dc3545; color: white; }
-    .status-badge-RUNNING { background-color: #0d6efd; color: white; }
-    .status-badge-QUEUED { background-color: #6c757d; color: white; }
-    .status-badge-UNKNOWN { background-color: #adb5bd; color: white; }
-
-    .nav-tabs .nav-link {
-        cursor: pointer;
-    }
-
-    .submissions-scroll {
-        max-height: min(60vh, 32rem);
-        overflow-y: auto;
-    }
-
-    .submissions-scroll thead th {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background-color: var(--bs-tertiary-bg);
-    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container profile-container py-5">
     <div class="mb-4">
-        <h1 class="h3 mb-0">User Profile</h1>
-        <p class="text-body-secondary">Manage your account and track your image processing jobs.</p>
+        <h1 class="h3 mb-0">Account Settings</h1>
+        <p class="text-body-secondary">Manage your account details and API access.</p>
     </div>
 
-    <!-- Tabs Navigation -->
-    <ul class="nav nav-tabs mb-4" id="profileTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#submissions" type="button" role="tab" aria-controls="submissions" aria-selected="true">
-                <i class="bi bi-list-ul me-2"></i>My Submissions
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false">
-                <i class="bi bi-gear me-2"></i>Account Settings
-            </button>
-        </li>
-    </ul>
-
-    <!-- Tabs Content -->
-    <div class="tab-content" id="profileTabsContent">
-
-        <!-- Submissions Tab -->
-        <div class="tab-pane fade show active" id="submissions" role="tabpanel" aria-labelledby="submissions-tab">
-            <div class="card shadow-sm">
-                <div class="card-body">
-                    <div class="row g-3 mb-4 align-items-end">
-                        <div class="col-md-8">
-                            <label for="submissionSearch" class="form-label fw-semibold">Search Submissions</label>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                <input type="text" id="submissionSearch" class="form-control" placeholder="Search by name or submission ID…">
-                                <button class="btn btn-primary" id="searchBtn">Search</button>
-                                <button class="btn btn-outline-secondary" id="clearSearchBtn">Clear</button>
-                            </div>
-                        </div>
+    <div class="row g-4">
+        <!-- User Info -->
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-person-circle fs-1 text-primary"></i>
                     </div>
-
-                    <div class="table-responsive submissions-scroll">
-                        <table class="table table-hover align-middle" id="userSubmissionsTable">
-                            <thead class="table-light">
-                                <tr>
-                                    <th scope="col">Name</th>
-                                    <th scope="col">Submission ID</th>
-                                    <th scope="col">Status</th>
-                                    <th scope="col">Started</th>
-                                    <th scope="col" class="text-end">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- Populated via AJAX -->
-                            </tbody>
-                        </table>
-                    </div>
-                    <div id="noResults" class="text-center py-4 d-none">
-                        <i class="bi bi-search fs-2 text-body-secondary"></i>
-                        <p class="text-body-secondary mt-2">No submissions found matching your search.</p>
-                    </div>
-                    <div id="submissionsPagination" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 d-none">
-                        <span class="text-body-secondary small" id="submissionsPageInfo"></span>
-                        <div class="btn-group" role="group" aria-label="Submissions pagination">
-                            <button type="button" class="btn btn-outline-secondary btn-sm" id="submissionsPrevBtn" disabled>Prev</button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm" id="submissionsNextBtn" disabled>Next</button>
-                        </div>
-                    </div>
+                    <h5 class="card-title mb-1">{{ current_user.username }}</h5>
+                    <p class="text-body-secondary small mb-3">Member since {{ current_user.signup_datetime.strftime('%Y-%m-%d') if current_user.signup_datetime else 'Unknown' }}</p>
+                    {% for role_name in current_user.role_names %}
+                    <span class="badge {{ 'bg-primary' if role_name == 'admin' else ('bg-danger' if role_name == 'banned' else 'bg-secondary') }}">
+                        {{ role_name | capitalize }}
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary">User</span>
+                    {% endfor %}
                 </div>
             </div>
         </div>
 
-        <!-- Settings Tab -->
-        <div class="tab-pane fade" id="settings" role="tabpanel" aria-labelledby="settings-tab">
-            <div class="row g-4">
-                <!-- User Info -->
-                <div class="col-md-4">
-                    <div class="card shadow-sm h-100">
-                        <div class="card-body text-center">
-                            <div class="mb-3">
-                                <i class="bi bi-person-circle fs-1 text-primary"></i>
-                            </div>
-                            <h5 class="card-title mb-1">{{ current_user.username }}</h5>
-                            <p class="text-body-secondary small mb-3">Member since {{ current_user.signup_datetime.strftime('%Y-%m-%d') if current_user.signup_datetime else 'Unknown' }}</p>
-                            {% for role_name in current_user.role_names %}
-                            <span class="badge {{ 'bg-primary' if role_name == 'admin' else ('bg-danger' if role_name == 'banned' else 'bg-secondary') }}">
-                                {{ role_name | capitalize }}
-                            </span>
-                            {% else %}
-                            <span class="badge bg-secondary">User</span>
-                            {% endfor %}
+        <!-- Forms -->
+        <div class="col-md-8">
+            <!-- Feedback Alerts -->
+            <div id="profileAlerts" class="mb-3"></div>
+
+            <!-- Update Username -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-transparent fw-bold">Update Username</div>
+                <div class="card-body">
+                    <form id="updateUsernameForm" class="row g-3">
+                        <div class="col-md-9">
+                            <input type="text" name="username" class="form-control" value="{{ current_user.username }}" required>
                         </div>
-                    </div>
+                        <div class="col-md-3 d-grid">
+                            <button type="submit" class="btn btn-primary">Update</button>
+                        </div>
+                    </form>
                 </div>
+            </div>
 
-                <!-- Forms -->
-                <div class="col-md-8">
-                    <!-- Feedback Alerts -->
-                    <div id="profileAlerts" class="mb-3"></div>
-
-                    <!-- Update Username -->
-                    <div class="card shadow-sm mb-4">
-                        <div class="card-header bg-transparent fw-bold">Update Username</div>
-                        <div class="card-body">
-                            <form id="updateUsernameForm" class="row g-3">
-                                <div class="col-md-9">
-                                    <input type="text" name="username" class="form-control" value="{{ current_user.username }}" required>
-                                </div>
-                                <div class="col-md-3 d-grid">
-                                    <button type="submit" class="btn btn-primary">Update</button>
-                                </div>
-                            </form>
+            <!-- Change Password -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-transparent fw-bold">Change Password</div>
+                <div class="card-body">
+                    <form id="changePasswordForm" class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small">Current Password</label>
+                            <input type="password" name="current_password" class="form-control" required>
                         </div>
-                    </div>
-
-                    <!-- Change Password -->
-                    <div class="card shadow-sm mb-4">
-                        <div class="card-header bg-transparent fw-bold">Change Password</div>
-                        <div class="card-body">
-                            <form id="changePasswordForm" class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label small">Current Password</label>
-                                    <input type="password" name="current_password" class="form-control" required>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label small">New Password</label>
-                                    <input type="password" name="new_password" class="form-control" required>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label small">Confirm New Password</label>
-                                    <input type="password" name="confirm_password" class="form-control" required>
-                                </div>
-                                <div class="col-md-6 d-grid align-items-end">
-                                    <button type="submit" class="btn btn-primary">Update Password</button>
-                                </div>
-                            </form>
+                        <div class="col-md-6">
+                            <label class="form-label small">New Password</label>
+                            <input type="password" name="new_password" class="form-control" required>
                         </div>
-                    </div>
-
-                    <!-- API Token -->
-                    <div class="card shadow-sm">
-                        <div class="card-header bg-transparent fw-bold">API Token</div>
-                        <div class="card-body">
-                            <p class="text-body-secondary small mb-3">
-                                Use a personal Bearer token with <code>/api/v1</code> clients.
-                                The raw token is shown only once when you generate or rotate it.
-                            </p>
-                            <p class="mb-3">
-                                Status:
-                                <span id="apiTokenStatus" class="badge bg-secondary">Checking…</span>
-                            </p>
-                            <div class="d-flex flex-wrap gap-2">
-                                <button type="button" class="btn btn-primary" id="rotateApiTokenBtn">
-                                    Generate / rotate token
-                                </button>
-                                <button type="button" class="btn btn-outline-danger" id="revokeApiTokenBtn">
-                                    Revoke token
-                                </button>
-                            </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Confirm New Password</label>
+                            <input type="password" name="confirm_password" class="form-control" required>
                         </div>
+                        <div class="col-md-6 d-grid align-items-end">
+                            <button type="submit" class="btn btn-primary">Update Password</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- API Token -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-transparent fw-bold">API Token</div>
+                <div class="card-body">
+                    <p class="text-body-secondary small mb-3">
+                        Use a personal Bearer token with <code>/api/v1</code> clients.
+                        The raw token is shown only once when you generate or rotate it.
+                    </p>
+                    <p class="mb-3">
+                        Status:
+                        <span id="apiTokenStatus" class="badge bg-secondary">Checking…</span>
+                    </p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-primary" id="rotateApiTokenBtn">
+                            Generate / rotate token
+                        </button>
+                        <button type="button" class="btn btn-outline-danger" id="revokeApiTokenBtn">
+                            Revoke token
+                        </button>
                     </div>
                 </div>
             </div>
@@ -216,261 +127,11 @@
         </div>
     </div>
 </div>
-
-<!-- Job retry / delete confirmation -->
-<div class="modal fade" id="jobConfirmModal" tabindex="-1" aria-labelledby="jobConfirmModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="jobConfirmModalLabel">Confirm</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p class="mb-0" id="jobConfirmModalBody"></p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="jobConfirmModalConfirm">Confirm</button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script nonce="{{ csp_nonce() }}">
     $(document).ready(function() {
-        const userId = "{{ current_user.id }}";
-        const resultsUrl = `/user/${userId}/submissions`;
-
-        // --- Submissions Logic ---
-
-        const PER_PAGE = 25;
-        let currentPage = 1;
-        let totalPages = 0;
-
-        function updatePaginationControls(page, pages, total) {
-            const $pager = $('#submissionsPagination');
-            const $info = $('#submissionsPageInfo');
-            const $prev = $('#submissionsPrevBtn');
-            const $next = $('#submissionsNextBtn');
-
-            currentPage = page;
-            totalPages = pages;
-
-            if (total === 0) {
-                $pager.addClass('d-none');
-                return;
-            }
-
-            $pager.removeClass('d-none');
-            $info.text(`Page ${page} of ${pages} (${total} total)`);
-            $prev.prop('disabled', page <= 1);
-            $next.prop('disabled', page >= pages);
-        }
-
-        function fetchSubmissions(query = '', page = 1) {
-            const $tbody = $('#userSubmissionsTable tbody');
-            const $noResults = $('#noResults');
-
-            $tbody.empty();
-            $noResults.addClass('d-none');
-
-            const params = new URLSearchParams({
-                q: query,
-                page: String(page),
-                per_page: String(PER_PAGE),
-            });
-
-            $.ajax({
-                url: `${resultsUrl}?${params.toString()}`,
-                type: 'GET',
-                success: function(response) {
-                    if (response.status !== 'successful') {
-                        alert('Failed to fetch submissions');
-                        return;
-                    }
-
-                    const submissions = response.submissions || [];
-                    const total = response.total || 0;
-                    const respPage = response.page || page;
-                    const pages = response.pages || 0;
-
-                    updatePaginationControls(respPage, pages, total);
-
-                    if (submissions.length === 0) {
-                        $noResults.removeClass('d-none');
-                        return;
-                    }
-
-                    submissions.forEach(job => {
-                        const statusClass = `status-badge-${job.status.toUpperCase()}`;
-                        const displayName = job.name
-                            ? $('<div>').text(job.name).html()
-                            : '<span class="text-body-secondary">—</span>';
-                        let started = '—';
-                        if (job.started_at) {
-                            const d = new Date(job.started_at);
-                            started = isNaN(d.getTime()) ? '—' : d.toLocaleString();
-                        }
-                        const statusUpper = (job.status || '').toUpperCase();
-                        const canRetry = ['FAILED', 'UNKNOWN', 'CRASHED', 'SUCCESS'].includes(statusUpper);
-                        const actions = [
-                            `<a href="/submit/${job.subid}" class="btn btn-sm btn-outline-primary">View</a>`,
-                        ];
-                        if (canRetry) {
-                            const force = statusUpper === 'SUCCESS' ? 'true' : 'false';
-                            actions.push(
-                                `<button type="button" class="btn btn-sm btn-outline-secondary btn-retry-job" data-subid="${job.subid}" data-force="${force}">Retry</button>`
-                            );
-                        }
-                        actions.push(
-                            `<button type="button" class="btn btn-sm btn-outline-danger btn-delete-job" data-subid="${job.subid}">Delete</button>`
-                        );
-                        const row = `
-                            <tr>
-                                <td class="fw-semibold">${displayName}</td>
-                                <td><code class="small">${job.subid}</code></td>
-                                <td><span class="badge ${statusClass}">${statusUpper}</span></td>
-                                <td class="small text-nowrap">${started}</td>
-                                <td class="text-end">
-                                    <div class="d-inline-flex flex-wrap gap-1 justify-content-end">${actions.join('')}</div>
-                                </td>
-                            </tr>`;
-                        $tbody.append(row);
-                    });
-                },
-                error: function() {
-                    alert('An error occurred while fetching submissions.');
-                }
-            });
-        }
-
-        let jobConfirmPending = null;
-        const jobConfirmModalEl = document.getElementById('jobConfirmModal');
-        const jobConfirmModal = jobConfirmModalEl
-            ? bootstrap.Modal.getOrCreateInstance(jobConfirmModalEl)
-            : null;
-        const jobConfirmTitle = document.getElementById('jobConfirmModalLabel');
-        const jobConfirmBody = document.getElementById('jobConfirmModalBody');
-        const jobConfirmBtn = document.getElementById('jobConfirmModalConfirm');
-
-        function openJobConfirm({ title, body, confirmLabel, danger, onConfirm }) {
-            if (!jobConfirmModal) return;
-            jobConfirmPending = onConfirm;
-            jobConfirmTitle.textContent = title;
-            jobConfirmBody.textContent = body;
-            jobConfirmBtn.textContent = confirmLabel || 'Confirm';
-            jobConfirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
-            jobConfirmModal.show();
-        }
-
-        if (jobConfirmBtn) {
-            jobConfirmBtn.addEventListener('click', async function () {
-                const action = jobConfirmPending;
-                jobConfirmPending = null;
-                jobConfirmModal.hide();
-                if (typeof action === 'function') {
-                    jobConfirmBtn.disabled = true;
-                    try {
-                        await action();
-                    } finally {
-                        jobConfirmBtn.disabled = false;
-                    }
-                }
-            });
-        }
-        if (jobConfirmModalEl) {
-            jobConfirmModalEl.addEventListener('hidden.bs.modal', function () {
-                jobConfirmPending = null;
-            });
-        }
-
-        $('#userSubmissionsTable').on('click', '.btn-delete-job', function () {
-            const subid = this.dataset.subid;
-            openJobConfirm({
-                title: 'Delete job?',
-                body: 'Remove this job and all of its files? This cannot be undone.',
-                confirmLabel: 'Delete',
-                danger: true,
-                onConfirm: async () => {
-                    try {
-                        const resp = await fetch('/api/v1/jobs/' + encodeURIComponent(subid), { method: 'DELETE' });
-                        const data = await resp.json();
-                        if (!resp.ok || data.status === 'failed') {
-                            throw new Error(data.reason || 'Delete failed');
-                        }
-                        fetchSubmissions($('#submissionSearch').val(), currentPage);
-                    } catch (e) {
-                        alert(e.message || 'Delete failed');
-                    }
-                },
-            });
-        });
-
-        $('#userSubmissionsTable').on('click', '.btn-retry-job', function () {
-            const subid = this.dataset.subid;
-            const force = this.dataset.force === 'true';
-            openJobConfirm({
-                title: force ? 'Re-run job?' : 'Retry job?',
-                body: force
-                    ? 'Re-run this successful job? Derived products will be cleared; input frames are kept.'
-                    : 'Start processing again for this job? Derived products will be cleared; input frames are kept.',
-                confirmLabel: force ? 'Re-run' : 'Retry',
-                danger: false,
-                onConfirm: async () => {
-                    try {
-                        const resp = await fetch('/api/v1/jobs/' + encodeURIComponent(subid) + '/retry', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ force: force }),
-                        });
-                        const data = await resp.json();
-                        if (!resp.ok || data.status === 'failed') {
-                            throw new Error(data.reason || 'Retry failed');
-                        }
-                        window.location.href = '/submit/' + subid;
-                    } catch (e) {
-                        alert(e.message || 'Retry failed');
-                    }
-                },
-            });
-        });
-
-        $('#searchBtn').on('click', function() {
-            currentPage = 1;
-            fetchSubmissions($('#submissionSearch').val(), 1);
-        });
-
-        $('#submissionSearch').on('keypress', function(e) {
-            if (e.which == 13) {
-                $('#searchBtn').click();
-            }
-        });
-
-        $('#clearSearchBtn').on('click', function() {
-            $('#submissionSearch').val('');
-            currentPage = 1;
-            fetchSubmissions('', 1);
-        });
-
-        $('#submissionsPrevBtn').on('click', function() {
-            if (currentPage > 1) {
-                fetchSubmissions($('#submissionSearch').val(), currentPage - 1);
-            }
-        });
-
-        $('#submissionsNextBtn').on('click', function() {
-            if (currentPage < totalPages) {
-                fetchSubmissions($('#submissionSearch').val(), currentPage + 1);
-            }
-        });
-
-        // Initial load
-        fetchSubmissions('', 1);
-
-        // --- Account Logic ---
-
         function showAlert(message, type = 'success') {
             const alertHtml = `
                 <div class="alert alert-${type} alert-dismissible fade show" role="alert">
@@ -478,7 +139,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>`;
             $('#profileAlerts').html(alertHtml);
-            // Auto-hide alert after 5 seconds
             setTimeout(() => {
                 $('.alert').fadeOut('slow');
             }, 5000);
@@ -497,7 +157,6 @@
                 data: JSON.stringify(formData),
                 success: function(response) {
                     showAlert(response.message, 'success');
-                    // Optionally update the displayed name in the User Info card
                     $('.card-title').text(formData.username);
                 },
                 error: function(xhr) {
@@ -530,8 +189,6 @@
                 }
             });
         });
-
-        // --- API Token ---
 
         function refreshTokenStatus() {
             $.ajax({

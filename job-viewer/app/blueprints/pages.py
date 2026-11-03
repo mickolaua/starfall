@@ -56,6 +56,12 @@ def user_page():
     return render_template("profile.html")
 
 
+@pages_bp.route("/submissions")
+@login_required
+def submissions():
+    return render_template("submissions.html")
+
+
 @pages_bp.route("/admin", methods=["GET", "POST"])
 @role_required("admin")
 def admin():

@@ -7,6 +7,7 @@ ENDPOINT_ALIASES = {
     "index": "pages.index",
     "about_page": "pages.about_page",
     "user_page": "pages.user_page",
+    "submissions": "pages.submissions",
     "admin": "pages.admin",
     "upload": "pages.upload",
     "get_submit": "pages.get_submit",
